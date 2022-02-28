@@ -182,24 +182,34 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION
 
 MaxNumOps ==
-    op[1] < MaxNumOp
+    \A c \in Clients:
+        op[c] < MaxNumOp
 
 Messages == 
       [type : {"Eventual","Consistent_Prefix","Bounded_Staleness","Strong"}, dat: {0..Nat}, ses: {0..Nat}, orig: Clients]
 \cup  [type : {"Reply", "Ack"}, dat: {0..Nat}, ses: {0..Nat}] 
 
 \* Invariants for single client(ID=1) writing with op++
-Eventual== chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
+Eventual== 
+    \A c \in Clients:
+        chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
 
-Consistent_Prefix  == chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
+Consistent_Prefix  == 
+    \A c \in Clients:
+        chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
 
-Session == pc[1]="CW" => chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:
-i \in ses[1]..Len(Database[Cloud])}
+Session == 
+    \A c \in Clients:
+        pc[c]="CW" => chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]: i \in ses[c]..Len(Database[Cloud])}
 
-Bounded_Staleness == pc[1]="CW" => chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:
-i \in (IF Len(Database[Cloud])>K THEN Len(Database[Cloud])-K ELSE 1)..Len(Database[Cloud])}
+Bounded_Staleness == 
+    \A c \in Clients:
+        pc[c]="CW" => chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]:
+            i \in (IF Len(Database[Cloud])>K THEN Len(Database[Cloud])-K ELSE 1)..Len(Database[Cloud])}
 
-Strong  == pc[1]="CW" => chistory[1][Len(chistory[1])]  = Database[Cloud][Len(Database[Cloud])]
+Strong  == 
+    \A c \in Clients:
+        pc[c]="CW" => chistory[c][Len(chistory[c])]  = Database[Cloud][Len(Database[Cloud])]
 
 =============================================================================
 
