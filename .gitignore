@@ -336,3 +336,4 @@ tools/
 */states/
 */*.old
 */*.out
+*/*.dot
