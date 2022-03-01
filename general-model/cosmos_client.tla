@@ -46,6 +46,16 @@ CONSTANT K
 
 ASSUME K \in Nat
 
+Values ==
+    \* [ i \in 0..19 |-> i ]
+    <<0,13,4,2,19,7,10,8,15,17,1,3,9,18,6,12,11,5,14>>
+
+NextValue(oldValue) ==
+    \* HACK!!!
+    LET old == CHOOSE i \in DOMAIN Values: Values[i] = oldValue
+        idx == CHOOSE i \in DOMAIN Values: i = old + 1
+    IN Values[idx]
+
 (* All regions in topology *)
 Regions == 1..NumRegions
 (* All writable regions in topology *)
@@ -169,7 +179,7 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
             either
             {
                 write:
-                value := value + 1;
+                value := NextValue(value);
                 write(value);
             }
             or read: read();
@@ -247,7 +257,7 @@ client_actions(self) == /\ pc[self] = "client_actions"
                                         session_token >>
 
 write(self) == /\ pc[self] = "write"
-               /\ value' = value + 1
+               /\ value' = NextValue(value)
                /\ IF self[1] \in WriteRegions
                      THEN /\ \A i, j \in Regions : Data[i] - Data[j] < Bound
                           /\ Database' = [Database EXCEPT ![self[1]] = Append(@, value')]
