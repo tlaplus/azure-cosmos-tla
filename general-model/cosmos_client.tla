@@ -101,11 +101,11 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
         RemoveDuplicates(es) == RemDupRec(es, {})
         
         SetMax(S) == IF S = {} THEN -1
-                     ELSE CHOOSE i \in S : \A j \in S : i >= j
+                     ELSE CHOOSE i \in S : \A j \in S : i >= j \* FiniteSetsExt!Max
                      
-        SeqToSet(s) == {s[i] : i \in DOMAIN s}
+        SeqToSet(s) == {s[i] : i \in DOMAIN s} \* Functions!Range
                      
-        Last(s) == s[Len(s)]
+        Last(s) == s[Len(s)] \* SequencesExt!Last
     }
     
     (* -------------------------------------------------------------- *)
