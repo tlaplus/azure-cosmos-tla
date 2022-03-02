@@ -1,7 +1,7 @@
 {
-    "tlaplus.tlc.modelChecker.options": "-deadlock -noTE -workers auto",
+    "tlaplus.tlc.modelChecker.options": "-deadlock -noTE -workers 1",
     "tlaplus.tlc.statisticsSharing": "share",
-    "tlaplus.java.options": "-XX:+UseParallelGC",
+    "tlaplus.java.options": "-XX:+UseParallelGC -cp /workspaces/azure-cosmos-tla/tools/tla2tools.jar:/workspaces/azure-cosmos-tla/tools/CommunityModules-deps.jar",
     "[tlaplus]": {"editor.codeActionsOnSave": {"source": true} },
     "extensions.autoCheckUpdates": false,
     "extensions.autoUpdate": false,

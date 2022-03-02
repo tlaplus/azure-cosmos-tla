@@ -5,6 +5,9 @@ ASSUME Consistency \in {"Eventual", "Consistent_Prefix", "Session", "Bounded_Sta
 ASSUME MaxNumOp \in Nat \ {0} /\ NumClients=1
 Cloud == 0
 Clients == 1..NumClients
+Value(op) ==
+    <<13,4,2,7,10,8,1,3,9,6,12,11,5>>[op]
+
 (* --algorithm swscop {
 variables
    chan = [n \in 0..NumClients |-> <<>>];  \* FIFO channels 
@@ -52,14 +55,14 @@ variables
     {
      CW: while(TRUE) {             
            op:=op+1; 
-           send(Cloud, [type |-> "Write", dat |-> op, ses|->ses, orig |-> self]);
+           send(Cloud, [type |-> "Write", dat |-> Value(op), ses|->ses, orig |-> self]);
      CWA:  receive(m); \* Ack
            ses:=m.ses;
            \* read
      CR:   send(Cloud, [type |-> Consistency, ses|->ses, orig |-> self]);
      CRA:  receive(m);  \* Reply      
            chistory:= Append(chistory,m.dat);
-           ses:=m.ses;            
+           ses:= m.ses;\*IF Consistency = "Session" THEN m.ses ELSE ses;            
         }
     }
 
@@ -146,7 +149,7 @@ cosmosdb(self) == D(self) \/ DW(self) \/ DE(self) \/ DP(self) \/ DS(self)
 
 CW(self) == /\ pc[self] = "CW"
             /\ op' = [op EXCEPT ![self] = op[self]+1]
-            /\ chan' = [chan EXCEPT ![Cloud] = Append(chan[Cloud], ([type |-> "Write", dat |-> op'[self], ses|->ses[self], orig |-> self]))]
+            /\ chan' = [chan EXCEPT ![Cloud] = Append(chan[Cloud], ([type |-> "Write", dat |-> Value(op'[self]), ses|->ses[self], orig |-> self]))]
             /\ pc' = [pc EXCEPT ![self] = "CWA"]
             /\ UNCHANGED << Database, msg, m, chistory, ses >>
 
@@ -198,9 +201,10 @@ Consistent_Prefix  ==
     \A c \in Clients:
         chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
 
-Session == 
-    \A c \in Clients:
+Session ==
+    /\ \A c \in Clients:
         pc[c]="CW" => chistory[c][Len(chistory[c])]  \in  {Database[Cloud][i]: i \in ses[c]..Len(Database[Cloud])}
+    \* /\ [][\A c \in Clients: ses[c] <= ses[c]']_vars
 
 Bounded_Staleness == 
     \A c \in Clients:
@@ -212,10 +216,3 @@ Strong  ==
         pc[c]="CW" => chistory[c][Len(chistory[c])]  = Database[Cloud][Len(Database[Cloud])]
 
 =============================================================================
-
-
-
-
-
-
-               

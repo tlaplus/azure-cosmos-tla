@@ -56,6 +56,12 @@ NextValue(oldValue) ==
         idx == CHOOSE i \in DOMAIN Values: i = old + 1
     IN Values[idx]
 
+NextValues(value) ==
+    \* Inclusive
+    LET idx == CHOOSE i \in DOMAIN Values: Values[i] = value
+    IN { Values[i] : i \in idx..Len(Values) }
+
+
 (* All regions in topology *)
 Regions == 1..NumRegions
 (* All writable regions in topology *)
@@ -151,7 +157,7 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
     {
         with (s \in WriteRegions; d \in Regions)
         {
-            Database[d] := RemoveDuplicates(SortSeq(Database[d] \o Database[s], <));
+            Database[d] := RemoveDuplicates((Database[d] \o Database[s]));
             if (Len(Database[d]) > 0)
             {
                 Data[d] := Last(Database[d]);
@@ -277,7 +283,7 @@ client(self) == client_actions(self) \/ write(self) \/ read(self)
 database_action == /\ pc[<<0, 0>>] = "database_action"
                    /\ \E s \in WriteRegions:
                         \E d \in Regions:
-                          /\ Database' = [Database EXCEPT ![d] = RemoveDuplicates(SortSeq(Database[d] \o Database[s], <))]
+                          /\ Database' = [Database EXCEPT ![d] = RemoveDuplicates((Database[d] \o Database[s]))]
                           /\ IF Len(Database'[d]) > 0
                                 THEN /\ Data' = [Data EXCEPT ![d] = Last(Database'[d])]
                                 ELSE /\ TRUE
@@ -310,7 +316,9 @@ AnyReadPerRegion(r) == \A i \in DOMAIN History : /\ History[i].type = "read"
                                                  => History[i].data \in SeqToSet(Database[r]) \union {0}
 
 (* Operation in history h is monitonic *)
-Monotonic(h) == \A i, j \in DOMAIN h : i <= j => h[i].data <= h[j].data
+Monotonic(h) == 
+    \A i, j \in DOMAIN h : 
+        i <= j => h[j].data \in NextValues(h[i].data)
 
 (* Reads in region r are monotonic *)
 MonotonicReadPerRegion(r) == LET reads == [i \in {j \in DOMAIN History : /\ History[j].type = "read" 
@@ -319,10 +327,15 @@ MonotonicReadPerRegion(r) == LET reads == [i \in {j \in DOMAIN History : /\ Hist
                               IN Monotonic(reads)
 
 (* Reads from client c are monotonic *)
-MonotonicReadPerClient(c) == LET reads == [i \in {j \in DOMAIN History : /\ History[j].type = "read" 
-                                                                         /\ History[j].client = c} 
-                                          |-> History[i]]
-                              IN Monotonic(reads)
+MonotonicReadPerClient(c) ==
+    LET reads == 
+            [   
+                i \in 
+                    {j \in DOMAIN History : /\ History[j].type = "read" 
+                                            /\ History[j].client = c} 
+                |-> History[i]
+            ]
+    IN Monotonic(reads)
                              
 MonotonicWritePerRegion(r) == LET writes == [i \in {j \in DOMAIN History : /\ History[j].type = "write" 
                                                                            /\ History[j].region = r} 
@@ -330,20 +343,27 @@ MonotonicWritePerRegion(r) == LET writes == [i \in {j \in DOMAIN History : /\ Hi
                                IN Monotonic(writes)
 
 (* Clients read their own writes *)
-ReadYourWrite == \A i, j \in DOMAIN History : /\ i < j
-                                              /\ History[i].type = "write"
-                                              /\ History[j].type = "read"
-                                              /\ History[i].client = History[j].client
-                                              => History[j].data >= History[i].data
+ReadYourWrite == 
+    \A i, j \in DOMAIN History : 
+        /\ i < j
+        /\ History[i].type = "write"
+        /\ History[j].type = "read"
+        /\ History[i].client = History[j].client
+        => History[j].data \in NextValues(History[i].data)
                                               
 (* Read the latest writes *)
-ReadAfterWrite == \A i, j \in DOMAIN History : /\ i < j
-                                               /\ History[i].type = "write"
-                                               /\ History[j].type = "read"
-                                               => History[j].data >= History[i].data
+ReadAfterWrite ==
+    \A i, j \in DOMAIN History :
+        /\ i < j
+        /\ History[i].type = "write"
+        /\ History[j].type = "read"
+        => History[j].data \in NextValues(History[i].data)
                                                
-Linearizability == \A i, j \in DOMAIN History : /\ i < j
-                                                => History[j].data >= History[i].data
+Linearizability ==
+    \A i, j \in DOMAIN History :
+        /\ i < j
+        => History[j].data \in {NextValue(History[i].data), History[i].data}
+        \* => History[j].data \in NextValues(History[i].data)
                                                
 LastOperation(c) == LET i == SetMax({j \in DOMAIN History : History[j].client = c})
                     IN IF i > 0 THEN History[i] ELSE <<>>
@@ -356,12 +376,12 @@ BoundedStaleness == /\ \A i, j \in Regions : Data[i] - Data[j] <= K
 ConsistentPrefix == \A r \in Regions : /\ MonotonicWritePerRegion(r)
                                        /\ AnyReadPerRegion(r)
 
-Strong == /\ Linearizability
-          /\ Monotonic(History)
-          /\ ReadAfterWrite
+Strong == /\ LIN:: Linearizability
+          /\ MON:: Monotonic(History)
+          /\ RAW:: ReadAfterWrite
 
-Session == /\ \A c \in Clients : MonotonicReadPerClient(c)
-           /\ ReadYourWrite
+Session == /\ MRPC:: \A c \in Clients : MonotonicReadPerClient(c)
+           /\ RYW:: ReadYourWrite
 
 Eventual == \A i \in DOMAIN History : 
             LET r == History[i].region
@@ -376,5 +396,20 @@ Invariant == /\ TypeOK
 
 Liveness == <>[] (\A i, j \in Regions : Database[i] = Database[j])
 
+Diameter ==
+    TLCGet("level") < 12
+
+Alias ==
+    [
+        Data |-> Data,
+        Database |-> Database,
+        History |-> History,
+        ses |-> session_token,
+        SessionMRPC |-> Session!MRPC,
+        SessionRYW |-> Session!RYW,
+        StrongLIN |-> Strong!LIN,
+        StrongMON |-> Strong!MON,
+        StrongRAW |-> Strong!RAW
+    ]
 =============================================================================
 \* Authored by Cosmos DB
