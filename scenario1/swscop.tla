@@ -193,8 +193,10 @@ Eventual== chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:i \in 1..Len(
 
 Consistent_Prefix  == chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:i \in 1..Len(Database[Cloud])}
 
-Session == pc[1]="CW" => chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:
-i \in ses[1]..Len(Database[Cloud])}
+Session == pc[1]="CW" =>
+    /\ chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]: i \in ses[1]..Len(Database[Cloud])}
+    \* Assert monotonic reads.
+    /\ \A i, j \in DOMAIN chistory[1] : i <= j => chistory[1][i] <= chistory[1][j]
 
 Bounded_Staleness == pc[1]="CW" => chistory[1][Len(chistory[1])]  \in  {Database[Cloud][i]:
 i \in (IF Len(Database[Cloud])>K THEN Len(Database[Cloud])-K ELSE 1)..Len(Database[Cloud])}
