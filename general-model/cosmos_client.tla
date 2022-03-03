@@ -46,21 +46,38 @@ CONSTANT K
 
 ASSUME K \in Nat
 
+Range(f) ==
+    {f[x]: x \in DOMAIN f}
+
 Values ==
     \* [ i \in 0..19 |-> i ]
-    <<0,13,4,2,19,7,10,8,15,17,1,3,9,18,6,12,11,5,14>>
+    \* <<0,13,4,2,19,7,10,8,15,17,1,3,9,18,6,12,11,5,14>>
+    \* <<5,25,14,33,17, 11, 18, 16, 6, 30, 2, 10, 13, 28, 29, 34, 22, 36, 32, 12, 23, 4, 20, 26, 19, 21, 31, 7, 35, 27, 24, 9, 8, 3, 15, 1>>
+    LET LCG(x) == ((5 * x) + 0) % 37 \* https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+        sum[ n \in 1..36 ] == IF n = 1 THEN LCG(n) ELSE LCG(sum[n-1])
+    IN sum
 
 NextValue(oldValue) ==
     \* HACK!!!
-    LET old == CHOOSE i \in DOMAIN Values: Values[i] = oldValue
-        idx == CHOOSE i \in DOMAIN Values: i = old + 1
-    IN Values[idx]
+    LET idx == CHOOSE i \in DOMAIN Values: Values[i] = oldValue
+    IN Values[idx + 1]
 
-NextValues(value) ==
+Suffix(value) ==
     \* Inclusive
     LET idx == CHOOSE i \in DOMAIN Values: Values[i] = value
     IN { Values[i] : i \in idx..Len(Values) }
 
+Prefix(value) ==
+    \* Inclusive
+    LET idx == CHOOSE i \in DOMAIN Values: Values[i] = value
+    IN { Values[i] : i \in 1..idx }
+
+PrefixOf(values) ==
+    \* Inclusive
+    LET idx == CHOOSE idx \in 0..Len(Values) : { Values[i] : i \in 1..idx } = values
+    IN SubSeq(Values, 1, idx)
+
+\* ASSUME PrintT(Values)
 
 (* All regions in topology *)
 Regions == 1..NumRegions
@@ -89,13 +106,13 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
               History = <<>>;
               
               (* Latest data value in each region *)
-              Data = [r \in Regions |-> 0];
+              Data = [r \in Regions |-> Head(Values)];
               
               (* Tentative log in each region *)
-              Database = [r \in Regions |-> <<>>];
+              Database = [r \in Regions |-> <<Head(Values)>>];
               
               (* Value used by clients *)
-              value = 0;
+              value = Head(Values);
               
     define {
         \* Removing duplicates from a sequence:
@@ -157,7 +174,8 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
     {
         with (s \in WriteRegions; d \in Regions)
         {
-            Database[d] := RemoveDuplicates((Database[d] \o Database[s]));
+            \* Database[d] := RemoveDuplicates((Database[d] \o Database[s]));
+            Database[d] := PrefixOf(Range(Database[d]) \cup Range(Database[s]));
             if (Len(Database[d]) > 0)
             {
                 Data[d] := Last(Database[d]);
@@ -169,7 +187,7 @@ Operations == [type: {"write"}, data: Nat, region: WriteRegions, client: Clients
     (* -------------------- CLIENT PROCESSES ------------------------ *)
     (* -------------------------------------------------------------- *)
     fair process (client \in Clients)
-    variable session_token = 0;
+    variable session_token = 1;
     numOp = 0;
     {
         client_actions:
@@ -231,11 +249,11 @@ Init == (* Global variables *)
                       [] Consistency = "consistent_prefix" -> MaxNumOp
                       [] Consistency = "eventual" -> MaxNumOp)
         /\ History = <<>>
-        /\ Data = [r \in Regions |-> 0]
-        /\ Database = [r \in Regions |-> <<>>]
-        /\ value = 0
+        /\ Data = [r \in Regions |-> Head(Values)]
+        /\ Database = [r \in Regions |-> <<Head(Values)>>]
+        /\ value = Head(Values)
         (* Process client *)
-        /\ session_token = [self \in Clients |-> 0]
+        /\ session_token = [self \in Clients |-> 1]
         /\ numOp = [self \in Clients |-> 0]
         /\ pc = [self \in ProcSet |-> CASE self \in Clients -> "client_actions"
                                         [] self = <<0, 0>> -> "database_action"]
@@ -283,7 +301,7 @@ client(self) == client_actions(self) \/ write(self) \/ read(self)
 database_action == /\ pc[<<0, 0>>] = "database_action"
                    /\ \E s \in WriteRegions:
                         \E d \in Regions:
-                          /\ Database' = [Database EXCEPT ![d] = RemoveDuplicates((Database[d] \o Database[s]))]
+                          /\ Database' = [Database EXCEPT ![d] = PrefixOf(Range(Database[d]) \cup Range(Database[s]))]
                           /\ IF Len(Database'[d]) > 0
                                 THEN /\ Data' = [Data EXCEPT ![d] = Last(Database'[d])]
                                 ELSE /\ TRUE
@@ -318,7 +336,7 @@ AnyReadPerRegion(r) == \A i \in DOMAIN History : /\ History[i].type = "read"
 (* Operation in history h is monitonic *)
 Monotonic(h) == 
     \A i, j \in DOMAIN h : 
-        i <= j => h[j].data \in NextValues(h[i].data)
+        i <= j => h[j].data \in Suffix(h[i].data)
 
 (* Reads in region r are monotonic *)
 MonotonicReadPerRegion(r) == LET reads == [i \in {j \in DOMAIN History : /\ History[j].type = "read" 
@@ -349,7 +367,7 @@ ReadYourWrite ==
         /\ History[i].type = "write"
         /\ History[j].type = "read"
         /\ History[i].client = History[j].client
-        => History[j].data \in NextValues(History[i].data)
+        => History[j].data \in Suffix(History[i].data)
                                               
 (* Read the latest writes *)
 ReadAfterWrite ==
@@ -357,13 +375,11 @@ ReadAfterWrite ==
         /\ i < j
         /\ History[i].type = "write"
         /\ History[j].type = "read"
-        => History[j].data \in NextValues(History[i].data)
+        => History[j].data \in Suffix(History[i].data)
                                                
 Linearizability ==
     \A i, j \in DOMAIN History :
-        /\ i < j
-        => History[j].data \in {NextValue(History[i].data), History[i].data}
-        \* => History[j].data \in NextValues(History[i].data)
+        i < j => History[i].data \in Prefix(History[j].data)
                                                
 LastOperation(c) == LET i == SetMax({j \in DOMAIN History : History[j].client = c})
                     IN IF i > 0 THEN History[i] ELSE <<>>
