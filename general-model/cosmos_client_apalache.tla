@@ -7,28 +7,26 @@
 (* guarantees Cosmos DB provides to the clients, without the details of    *)
 (* the protocol implementation.                                            *)
 (***************************************************************************)
-EXTENDS Integers, Sequences, FiniteSets, TLC
+EXTENDS Integers, Sequences, FiniteSets, TLC, Apalache
 
-\* RECURSIVE RemDupRec(_,_)
-\* RemDupRec(es, seen) == IF es = <<>> THEN <<>>
-\*                        ELSE IF es[1] \in seen THEN RemDupRec(Tail(es), seen)
-\*                        ELSE <<es[1]>> \o RemDupRec(Tail(es), seen \cup {es[1]})
 
-\* RemoveDuplicates(es) == RemDupRec(es, {})
+\* @type: (Seq(Int), (a => Bool)) => Seq(Int);
+FilterSeq(seq, cmp(_)) ==
+    LET \* @type: (Seq(Int), Int) => Seq(Int);
+        Frob(acc, e) == IF cmp(e) THEN acc \o <<e>> ELSE acc
+    IN FoldSeq(Frob, <<>>, seq)
 
-\* @type: (Seq(Int), Seq(Int)) => (Int -> Int);
-MergeOff(s1, s2) ==
-    LET \* @type: (Int, Int) => Bool;
-        Less(a,b) == a < b
-    IN SortSeq(s1 \o s2, Less) (*No annotation found for <. Make sure that you've put one in front of <.*)
+\* @type: (Seq(Int), Int) => Seq(Int);
+SortedSeq(sorted, e) == 
+    LET \* @type: Int => Bool;
+        Gt(a) == a > e
+        \* @type: Int => Bool;
+        Lt(a) == a < e
+    IN FilterSeq(sorted, Lt) \o <<e>> \o FilterSeq(sorted, Gt)
 
-\* @type: (Seq(a), Seq(a)) => Seq(a);
+\* @type: (Seq(Int), Seq(Int)) => Seq(Int);
 Merge(s1, s2) ==
-    s1 \o s2 \* Apalache's type checker does not accept MergeOff above:
-             \* Annotation required. Found 2 matching operator signatures 
-             \*   ((a50, a51) => (a50 -> a51)) or ((Int, a50) => Seq(a50))
-             \*   for arguments Int and (Int -> Int)
-             \* Error when computing the type of database_action
+    FoldSeq(SortedSeq, <<>>, s1 \o s2)
 
 Last(s) ==
     s[Len(s)]
