@@ -1,120 +1,340 @@
 ------------------------------- MODULE Workflow --------------------------------
-EXTENDS Integers, TLC, Sequences, SequencesExt
+EXTENDS Integers, TLC, Sequences, SequencesExt, Bags, BagsExt
 
+ARM ==
+    "F"
+
+Worker ==
+    {"D", "R"}
+
+\* Turn Clients into a CONSTANT
+Clients ==
+    Worker \cup {ARM}
+    
+--------------------------------------------------------------------------------
+
+CONSTANT Data, Null
+
+Levels ==
+    {"Strong", "Bounded_staleness", "Session", "Consistent_prefix", "Eventual"}
+
+STRNG ==
+    [level |-> "Strong", token |-> -1 ]
+
+SSSN(token) ==
+    [level |-> "Session", token |-> token ]
+
+Consistency ==
+    [level: Levels, lsm: Int]
+
+Cosmos ==
+    "Cosmos"
+
+\* Turn Regions into a CONSTANT
 Regions ==
-    {"F", "D", "R"}
+    {ARM} \cup Worker
 
 WriteRegions ==
-    {"F", "D", "R"}
+    Regions
+    
+--------------------------------------------------------------------------------
+
+\* Request: Client -> Cosmos
+Request ==
+    [
+        doc: STRING,     \* The document that was read.
+        data: Data,    \* The data that was read.
+        type: {"Read"}, 
+        consistency: Consistency, 
+        region: Regions, \* The region the original read request was sent to.
+        orig: Clients    \* The client that originally sent the read request.
+    ] \cup
+    [
+        doc: STRING,     \* The document that was written.
+        data: Data,      \* The data that was written.
+        old: Data \cup {Null},    \* If not Null, the expected data to be overriden (If-Match).  Note that If-Match & etags are essentially compare-and-swap.
+        type: {"Write"}, 
+        consistency: Consistency, 
+        region: WriteRegions, \* The region the original write request was sent to.
+        orig: Clients
+    ]
+
+\* Response: Cosmos -> Client
+Response ==
+    [
+        doc: STRING,     \* The document that was written.
+        data: Data,    \* "ACK", a session token, or the data that was read.
+        type: {"Reply", "Error"}, 
+        consistency: Consistency, 
+        region: Regions, \* The region the original read request was sent to.
+        orig: {Cosmos}
+    ] \cup 
+    [
+        doc: STRING,       \* The document that was written.
+        data: {Null},      \* Null
+        \* In case of error, the write might or might not have succeeded. An error
+        \* models the case that the database response to a write request was lost.
+        \* Message duplications is assumed to be prevented by the communicaion
+        \* protocol (e.g. TCP).
+        type: {"ACK", "NACK", "Error"},
+        consistency: Consistency, 
+        region: WriteRegions, \* The region the original read request was sent to.
+        orig: {Cosmos}
+    ]
+
+VARIABLE
+    outbox,
+    \* A bag (multiset) of requests.
+    inbox,
+    \* A sequence of requests.
+    database
+
+TypeOK ==
+    /\ outbox \in [ Clients -> Response ]
+    /\ IsABag(inbox)
+    /\ DOMAIN inbox \subseteq Request
+    /\ database \in Seq(Request)
+
+ReadResponse(request) ==
+    {}
+
+WriteResponse(request) ==
+    \* Success or failure.
+    {}
+
+CosmosRead ==
+    \* Non-deterministically read from the channel.
+    \E req \in DOMAIN inbox:
+        \/ \* Loose the request.
+           /\ BagRemove(inbox, req)
+           /\ UNCHANGED <<database, outbox>>
+        \/ \* Handle the request.
+           \/ /\ req.type = "Read"
+              /\ database' = Append(database, req)
+              /\ \/ \E res \in ReadResponse(req):
+                        outbox' = [outbox EXCEPT ![req.origin] = Append(@, res)]
+                 \/ UNCHANGED outbox \* Response is lost.
+              /\ BagRemove(inbox, req)
+           \/ /\ req.type = "Write"
+              /\ database' = Append(database, req)
+              /\ \/ \E res \in WriteResponse(req):
+                        outbox' = [outbox EXCEPT ![req.origin] = Append(@, res)]
+                 \/ UNCHANGED outbox \* Response is lost.
+              /\ BagRemove(inbox, req)
+
+Init ==
+    /\ outbox = [ c \in Clients |-> <<>> ]
+    /\ inbox = <<>>
+    /\ database = <<>>
+
+Next ==
+    \/ LET req == []
+       IN inbox' = BagAdd(inbox, req)
+    \/ CosmosRead
+    
+======
+--------------------------------------------------------------------------------
+
+Writes(db, doc) ==
+    FoldLeft(LAMBDA acc, e: IF e.type = "Write" /\ e.doc = doc THEN acc \o <<e>> ELSE acc,
+             <<>>, db)
 
 (* --fair algorithm Workflow {
 
     variables
-        history = <<>>;
+        AzureQueue = <<>>;
 
-    define {
-        DB == INSTANCE CosmosDB WITH Consistency <- "Strong"
+        \* chan decouples cosmos from the client.
+        chan = [n \in {ARM, Cosmos} \cup Worker |-> <<>>];  \* FIFO channels 
 
-        Success ==
-            \* One worker will successfully create the VM.
-            LET f == FoldLeft(LAMBDA acc, e:
-                                IF e.doc = "vm" /\ e.data = "r1" THEN acc \o <<e>> ELSE acc,
-                                <<>>, history)
-            IN <>[](Len(f) = 1)
+    macro send(des, msg) {
+        chan[des] := Append(chan[des], msg);
+    }
+
+    macro receive(p, msg) {
+        await Len(chan[p]) > 0;
+        msg := Head(chan[p]);
+        chan[p] := Tail(chan[p]);
+    }
+
+    \* Upon receipt of a (client) request, the database either replies with the expected response, 
+    \* an error, or not at all.  The last case is futher divided into two cases s.t. the (write) 
+    \* operation is performed but the response is lost or that the write does not happen.
+
+    \* The database is modeled as a sequence of the read and write requests, from which the response
+    \* has to be derived.  Even with multiple (read or write) regions, the database is still a
+    \* single sequence.  Contrary to a real system, the database exposes its internal state to the
+    \* client.  The client state, ie. the previous response, has to be part of the next request.
+
+    \* We model the communication between clients and Cosmos via channels to decouple both sides at
+    \* the TLA+ level.
+    process (cosmos = Cosmos)
+    variables
+        Database = <<>>; msg;    
+    {D: while(TRUE) {
+           receive(Cosmos, msg);
+           Database := Append(Database, msg);
+        
+           if (msg.type="Write"){
+                                                     \* what should be the response to a write (the previous value, the new value, what does cosmos return)?
+    DW:       send(msg.orig, [type|-> "Ack", data|->Database[Len(Database)], ses|->Len(Database)]);}             
+
+    \*        else if (msg.consistency="Eventual")
+    \* DP:       with (k \in 1..Len(Database))
+    \*              send(msg.orig, [type|-> "Reply", data|->Database[k], ses|->-1]);
+        
+    \*        else if (msg.consistency="Session")
+    \* DS:       with (k \in msg.ses..Len(Database))
+    \*              send(msg.orig, [type|-> "Reply", dat|->Database[k], ses|->k]);
+
+           else if (msg.consistency=STRNG)                  
+    DG:       with (k= Len(Writes(Database, msg.doc)))
+                 send(msg.orig, [type|-> "Reply", data|->Writes(Database, msg.doc)[k].data, ses|->-1]);          
+       }
     }
 
     \* Frontdoor ARM
-    process (a = "arm")
+    process (a = ARM)
+        variables amsg;
     {
-        \* ARM writes job into database
-        arm1: history := DB!Write(history, [region |-> "F", data |-> "j1", doc |-> "job"]);
-
-        \* ARM writes Resource Group into database
-        arm2: history := DB!Write(history, [region |-> "F", data |-> "r1", doc |-> "rg"]);
+     arml:  send(Cosmos, Write(STRNG, "F", "r1", "rg", ARM));
+     armi:  receive(ARM, amsg); \* Ack
+            AzureQueue := Append(AzureQueue, [ job |-> "vm" ]); \* ARM enqueues jobs into Azure Strogae Queue.
     }
 
     \* Worker
-    process (worker \in {"D", "R"})
+    process (worker \in Worker)
+        variable wmsg;
     {
-        \* Steal the job by (atomically) "updating" the job in the database.
-        wrk1: when "j1" \in DB!Read(history, [region |-> "F", doc |-> "job"]);
-              history := DB!Write(history, [region |-> "F", data |-> self, doc |-> "job"]);
-        
-        \* Get the resource group from the database.
-        wrk2: with (w \in DB!Read(history, [region |-> self, doc |-> "rg"])) {
-                \* assert w # "";
-                \* Create a resource such as a VM.
-                history := DB!Write(history, [region |-> self, data |-> w, doc |-> "vm"]);
-              }
+            \* Steal the job by dequeueing from an Azure storge queue: (https://docs.microsoft.com/en-us/azure/storage/queues/storage-queues-introduction)
+     wrko:  when AzureQueue # <<>>;
+            wmsg := Head(AzureQueue);
+            AzureQueue := Tail(AzureQueue);
+           
+     wrkf:  send(Cosmos, Read(STRNG, self, "rg", self));
+     wrke:  receive(self, wmsg); \* Ack
+            assert wmsg.data # "";
+
+     wrkd:  send(Cosmos, Write(STRNG, self, wmsg.data, "vm", self));
+     wrkw:  receive(self, wmsg); \* Ack
     }
 }
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "7c28162a" /\ chksum(tla) = "ada08041")
-VARIABLES history, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "7c28162a" /\ chksum(tla) = "cd7e92ed")
+CONSTANT defaultInitValue
+VARIABLES AzureQueue, chan, pc, Database, msg, amsg, wmsg
 
-(* define statement *)
-DB == INSTANCE CosmosDB WITH Consistency <- "Strong"
+vars == << AzureQueue, chan, pc, Database, msg, amsg, wmsg >>
 
-Success ==
-
-    LET f == FoldLeft(LAMBDA acc, e:
-                        IF e.doc = "vm" /\ e.data = "r1" THEN acc \o <<e>> ELSE acc,
-                        <<>>, history)
-    IN <>[](Len(f) = 1)
-
-
-vars == << history, pc >>
-
-ProcSet == {"arm"} \cup ({"D", "R"})
+ProcSet == {Cosmos} \cup {ARM} \cup (Worker)
 
 Init == (* Global variables *)
-        /\ history = <<>>
-        /\ pc = [self \in ProcSet |-> CASE self = "arm" -> "arm1"
-                                        [] self \in {"D", "R"} -> "wrk1"]
+        /\ AzureQueue = <<>>
+        /\ chan = [n \in {ARM, Cosmos} \cup Worker |-> <<>>]
+        (* Process cosmos *)
+        /\ Database = <<>>
+        /\ msg = defaultInitValue
+        (* Process a *)
+        /\ amsg = defaultInitValue
+        (* Process worker *)
+        /\ wmsg = [self \in Worker |-> defaultInitValue]
+        /\ pc = [self \in ProcSet |-> CASE self = Cosmos -> "D"
+                                        [] self = ARM -> "arml"
+                                        [] self \in Worker -> "wrko"]
 
-arm1 == /\ pc["arm"] = "arm1"
-        /\ history' = DB!Write(history, [region |-> "F", data |-> "j1", doc |-> "job"])
-        /\ pc' = [pc EXCEPT !["arm"] = "arm2"]
+D == /\ pc[Cosmos] = "D"
+     /\ Len(chan[Cosmos]) > 0
+     /\ msg' = Head(chan[Cosmos])
+     /\ chan' = [chan EXCEPT ![Cosmos] = Tail(chan[Cosmos])]
+     /\ Database' = Append(Database, msg')
+     /\ IF msg'.type="Write"
+           THEN /\ pc' = [pc EXCEPT ![Cosmos] = "DW"]
+           ELSE /\ IF msg'.consistency=STRNG
+                      THEN /\ pc' = [pc EXCEPT ![Cosmos] = "DG"]
+                      ELSE /\ pc' = [pc EXCEPT ![Cosmos] = "D"]
+     /\ UNCHANGED << AzureQueue, amsg, wmsg >>
 
-arm2 == /\ pc["arm"] = "arm2"
-        /\ history' = DB!Write(history, [region |-> "F", data |-> "r1", doc |-> "rg"])
-        /\ pc' = [pc EXCEPT !["arm"] = "Done"]
+DW == /\ pc[Cosmos] = "DW"
+      /\ chan' = [chan EXCEPT ![(msg.orig)] = Append(chan[(msg.orig)], ([type|-> "Ack", data|->Database[Len(Database)], ses|->Len(Database)]))]
+      /\ pc' = [pc EXCEPT ![Cosmos] = "D"]
+      /\ UNCHANGED << AzureQueue, Database, msg, amsg, wmsg >>
 
-a == arm1 \/ arm2
+DG == /\ pc[Cosmos] = "DG"
+      /\ LET k == Len(Writes(Database, msg.doc)) IN
+           chan' = [chan EXCEPT ![(msg.orig)] = Append(chan[(msg.orig)], ([type|-> "Reply", data|->Writes(Database, msg.doc)[k].data, ses|->-1]))]
+      /\ pc' = [pc EXCEPT ![Cosmos] = "D"]
+      /\ UNCHANGED << AzureQueue, Database, msg, amsg, wmsg >>
 
-wrk1(self) == /\ pc[self] = "wrk1"
-              /\ "j1" \in DB!Read(history, [region |-> "F", doc |-> "job"])
-              /\ history' = DB!Write(history, [region |-> "F", data |-> self, doc |-> "job"])
-              /\ pc' = [pc EXCEPT ![self] = "wrk2"]
+cosmos == D \/ DW \/ DG
 
-wrk2(self) == /\ pc[self] = "wrk2"
-              /\ \E w \in DB!Read(history, [region |-> self, doc |-> "rg"]):
-                   history' = DB!Write(history, [region |-> self, data |-> w, doc |-> "vm"])
+arml == /\ pc[ARM] = "arml"
+        /\ chan' = [chan EXCEPT ![Cosmos] = Append(chan[Cosmos], (Write(STRNG, "F", "r1", "rg", ARM)))]
+        /\ pc' = [pc EXCEPT ![ARM] = "armi"]
+        /\ UNCHANGED << AzureQueue, Database, msg, amsg, wmsg >>
+
+armi == /\ pc[ARM] = "armi"
+        /\ Len(chan[ARM]) > 0
+        /\ amsg' = Head(chan[ARM])
+        /\ chan' = [chan EXCEPT ![ARM] = Tail(chan[ARM])]
+        /\ AzureQueue' = Append(AzureQueue, [ job |-> "vm" ])
+        /\ pc' = [pc EXCEPT ![ARM] = "Done"]
+        /\ UNCHANGED << Database, msg, wmsg >>
+
+a == arml \/ armi
+
+wrko(self) == /\ pc[self] = "wrko"
+              /\ AzureQueue # <<>>
+              /\ wmsg' = [wmsg EXCEPT ![self] = Head(AzureQueue)]
+              /\ AzureQueue' = Tail(AzureQueue)
+              /\ pc' = [pc EXCEPT ![self] = "wrkf"]
+              /\ UNCHANGED << chan, Database, msg, amsg >>
+
+wrkf(self) == /\ pc[self] = "wrkf"
+              /\ chan' = [chan EXCEPT ![Cosmos] = Append(chan[Cosmos], (Read(STRNG, self, "rg", self)))]
+              /\ pc' = [pc EXCEPT ![self] = "wrke"]
+              /\ UNCHANGED << AzureQueue, Database, msg, amsg, wmsg >>
+
+wrke(self) == /\ pc[self] = "wrke"
+              /\ Len(chan[self]) > 0
+              /\ wmsg' = [wmsg EXCEPT ![self] = Head(chan[self])]
+              /\ chan' = [chan EXCEPT ![self] = Tail(chan[self])]
+              /\ Assert(wmsg'[self].data # "", 
+                        "Failure of assertion at line 216, column 13.")
+              /\ pc' = [pc EXCEPT ![self] = "wrkd"]
+              /\ UNCHANGED << AzureQueue, Database, msg, amsg >>
+
+wrkd(self) == /\ pc[self] = "wrkd"
+              /\ chan' = [chan EXCEPT ![Cosmos] = Append(chan[Cosmos], (Write(STRNG, self, wmsg[self].data, "vm", self)))]
+              /\ pc' = [pc EXCEPT ![self] = "wrkw"]
+              /\ UNCHANGED << AzureQueue, Database, msg, amsg, wmsg >>
+
+wrkw(self) == /\ pc[self] = "wrkw"
+              /\ Len(chan[self]) > 0
+              /\ wmsg' = [wmsg EXCEPT ![self] = Head(chan[self])]
+              /\ chan' = [chan EXCEPT ![self] = Tail(chan[self])]
               /\ pc' = [pc EXCEPT ![self] = "Done"]
+              /\ UNCHANGED << AzureQueue, Database, msg, amsg >>
 
-worker(self) == wrk1(self) \/ wrk2(self)
+worker(self) == wrko(self) \/ wrkf(self) \/ wrke(self) \/ wrkd(self)
+                   \/ wrkw(self)
 
-(* Allow infinite stuttering to prevent deadlock on termination. *)
-Terminating == /\ \A self \in ProcSet: pc[self] = "Done"
-               /\ UNCHANGED vars
-
-Next == a
-           \/ (\E self \in {"D", "R"}: worker(self))
-           \/ Terminating
+Next == cosmos \/ a
+           \/ (\E self \in Worker: worker(self))
 
 Spec == /\ Init /\ [][Next]_vars
         /\ WF_vars(Next)
 
-Termination == <>(\A self \in ProcSet: pc[self] = "Done")
-
 \* END TRANSLATION 
 
-Alias ==
-    [
-        pc |-> pc,
-        history |-> history,
-        f |-> FoldLeft(LAMBDA acc, e: IF e.doc = "vm" THEN acc \o <<e>> ELSE acc, <<>>, history)
-    ]
+Success ==
+    \* One worker will successfully create the VM.
+    /\ LET f == FoldLeft(LAMBDA acc, e:
+                                IF e.doc = "vm" /\ e.data = "r1" THEN acc \o <<e>> ELSE acc,
+                                <<>>, Database)
+       IN <>[](Len(f) = 1)
+    /\ <>[](\A p \in DOMAIN chan: chan[p] = <<>>)
+    /\ <>[](AzureQueue = <<>>)
+
 ================================================================================
 
 

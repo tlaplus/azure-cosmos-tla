@@ -106,13 +106,37 @@ ReadStrongResponse(request) ==
         THEN {reply(LastData, LastLSN)}
         ELSE {} \* 404 in Cosmos DB
 
+ReadSessionResponse(request) ==
+    LET error == [
+            doc |-> request.doc,
+            data |-> Null,
+            type |-> "Error",
+            consistency |-> [level |-> request.consistency.level, lsn |-> -1],
+            region |-> request.region,
+            orig |-> "cosmos"
+        ]
+        reply(data, lsn) == [
+            doc |-> request.doc,
+            data |-> data,
+            type |-> "Reply",
+            consistency |-> [level |-> request.consistency.level, lsn |-> lsn],
+            region |-> request.region,
+            orig |-> "cosmos"
+        ]
+    IN {error} \cup 
+        \* {} models 404 in Cosmos DB
+        LET WritesInRange == { w \in Range(database) : w.type = "Write" /\ w.consistency.lsn >= request.consistency.lsn }
+        IN { reply(w.data, w.consistency.lsn) : w \in WritesInRange }
+
+ReadEventualResponse(request) ==
+    FALSE \* TODO
 
 ReadResponse(request) ==
     CASE request.consistency.level = "Strong" -> ReadStrongResponse(request)
-        [] request.consistency.level = "Bounded_staleness" -> {}
-        [] request.consistency.level = "Session" -> {}
-        [] request.consistency.level = "Consistent_prefix" -> {}
-        [] request.consistency.level = "Eventual" -> {}
+        [] request.consistency.level = "Bounded_staleness" -> FALSE \* TODO
+        [] request.consistency.level = "Session" -> ReadSessionResponse(request)
+        [] request.consistency.level = "Consistent_prefix" -> FALSE \* TODO
+        [] request.consistency.level = "Eventual" -> ReadEventualResponse(request)
 
 WriteStrongResponse(request) ==
     \* With strong consistency, any previous (happen-before) write to any region has
@@ -146,6 +170,9 @@ WriteStrongResponse(request) ==
         THEN {ack}
         ELSE {nack(LastData)}
 
+ WriteSessionResponse(request) ==
+     WriteStrongResponse(request)
+
 WriteResponse(request) ==
     \* TODO: Dependeing on the consistency level, the write might not be enabled
     \* TODO: if old (if-match) is part of the request.  For example, client c1
@@ -155,10 +182,10 @@ WriteResponse(request) ==
     \* TODO: eventual consistency we cannot assume that c1's write has been replicated.
     \* TODO: In this case, the write has to be delayed, fail, or succeed.
     CASE request.consistency.level = "Strong" -> WriteStrongResponse(request)
-        [] request.consistency.level = "Bounded_staleness" -> {}
-        [] request.consistency.level = "Session" -> {}
-        [] request.consistency.level = "Consistent_prefix" -> {}
-        [] request.consistency.level = "Eventual" -> {}
+        [] request.consistency.level = "Bounded_staleness" -> FALSE \* TODO
+        [] request.consistency.level = "Session" -> WriteSessionResponse(request)
+        [] request.consistency.level = "Consistent_prefix" -> FALSE \* TODO
+        [] request.consistency.level = "Eventual" -> FALSE \* TODO
 
 CosmosWrite ==
     \E req \in DOMAIN inbox:
@@ -171,7 +198,7 @@ CosmosWrite ==
                        THEN database' = Append(database, req)
                        ELSE UNCHANGED database
                     /\ \/ outbox' = [outbox EXCEPT ![req.orig] = Append(@, res)]
-                       \/ UNCHANGED <<outbox>> \* Response is lost.
+                    \*    \/ UNCHANGED <<outbox>> \* Response is lost.
           /\ inbox' = BagRemove(inbox, req)
           /\ UNCHANGED cvars
 
@@ -181,7 +208,7 @@ CosmosRead ==
         /\ database' = Append(database, req)
         /\ \/ \E res \in ReadResponse(req):
                 outbox' = [outbox EXCEPT ![req.orig] = Append(@, res)]
-           \/ UNCHANGED outbox \* Response is lost.
+        \*    \/ UNCHANGED outbox \* Response is lost.
         /\ inbox' = BagRemove(inbox, req)
         /\ UNCHANGED cvars
 
@@ -203,7 +230,7 @@ vars == <<cvars, dvars>>
 TypeOK ==
     \* Clients
     /\ DOMAIN pc = Clients
-    /\ Range(pc) \subseteq {"start", "write", "retry", "read", "receive", "error"}
+    /\ Range(pc) \subseteq {"start", "write", "retry", "read", "receive", "error", "done"}
     /\ client \in [Clients -> (Response \cup {Null})]
     \* Cosmos
     /\ outbox \in [ Clients -> Seq(Response) ]
@@ -212,25 +239,6 @@ TypeOK ==
     /\ database \in Seq(Request)
 
 --------------------------------------------------------------------------------
-
-InitialRequest ==
-    /\ \E c \in Clients :
-        \* start -> receive
-        /\ pc[c] = "start"
-        /\ pc' = [ pc EXCEPT ![c] = "receive" ]
-        /\ LET req == [
-                doc |-> "doc1",
-                data |-> c,
-                old |-> Null,
-                type |-> "Write",
-                \* TODO This will issue two writes with the same lsn. Not sure if this is an issue?!
-                consistency |-> [level |-> "Strong", lsn |-> -1],
-                region |-> "R",
-                orig |-> c
-               ]   
-           IN /\ inbox' = BagAdd(inbox, req)
-    /\ UNCHANGED <<database, outbox, client>>
-    
 
 SendWriteRequest ==
     /\ UNCHANGED client
@@ -245,8 +253,9 @@ SendWriteRequest ==
         /\ LET res == client[c] IN
             /\ LET req == [
                 doc |-> res.doc,
-                data |-> IF res.data # Null THEN res.data \o c ELSE c,
-                old |-> Null,
+                data |-> IF res.data # Null THEN res.data + c ELSE c,
+                \* old |-> Null, \* No if-match for now.
+                old |-> res.data,
                 type |-> "Write",
                 consistency |-> res.consistency,
                 region |-> res.region,
@@ -263,18 +272,17 @@ SendReadRequest ==
         /\ pc' = [ pc EXCEPT ![c] = "receive" ]
         \* A client can send a request unless it has a response pending.
         /\ outbox[c] = <<>>
-        \* Given a prior response, a client can send a request.
-        /\ client[c] # Null
-        /\ LET res == client[c] IN
-            /\ LET req == [
-                doc |-> res.doc,
-                type |-> "Read",
-                consistency |-> res.consistency,
-                region |-> res.region,
-                orig |-> c
-               ]   
-               IN /\ inbox' = BagAdd(inbox, req)
-                  /\ UNCHANGED <<database, outbox>>
+        /\ LET req == [
+            doc |-> "doc1",
+            type |-> "Read",
+            consistency |-> IF client[c] # Null 
+                            THEN client[c].consistency
+                            ELSE [level |-> "Session", lsn |-> 1],
+            region |-> "R",
+            orig |-> c
+           ]   
+           IN /\ inbox' = BagAdd(inbox, req)
+              /\ UNCHANGED <<database, outbox>>
 
 ReceiveResponse ==
     \* TODO: This action could be squashed into read, write, error, ...
@@ -296,21 +304,44 @@ ReceiveResponse ==
            ELSE UNCHANGED <<outbox, pc, client>>
     /\ UNCHANGED <<database, inbox>>
 
+HandleNack ==
+    /\ \E c \in Clients :
+        /\ pc[c] = "retry"
+        \* Just trigger a rewrite because NACK contained the current data.
+        /\ pc' = [ pc EXCEPT ![c] = "write" ]
+    /\ UNCHANGED <<client, dvars>>
+    
+HandleError ==
+    /\ \E c \in Clients :
+        /\ pc[c] = "error"
+        \* TODO Do something meaningful here.  One possibility is to
+        \* TODO assert that no behavior terminates in infinite stuttering
+        \* TODO pc[c] = "error" for one or more clients:
+        \* TODO   <>[](\A c \in Clients: pc[c] # "error")
+        /\ pc' = [ pc EXCEPT ![c] = "done" ]
+    /\ UNCHANGED <<dvars, client>>
+
 Workflow ==
-    \/ InitialRequest
     \/ SendWriteRequest
     \/ SendReadRequest
     \/ ReceiveResponse
+    \/ HandleNack
+    \/ HandleError
     
 --------------------------------------------------------------------------------
 
 Init ==
-    /\ pc = [ c \in Clients |-> "start" ]
+    /\ pc = [ c \in Clients |-> "read" ]
     /\ client = [ c \in Clients |-> Null ]
     /\ outbox = [ c \in Clients |-> <<>> ]
     /\ inbox = <<>>
-    /\ database = <<>>
-
+    /\ database \in [ {1} -> 
+                        [
+                            consistency: {[level |-> "Strong", lsn |-> 1]}, 
+                            data: {1}, doc: {"doc1"}, old: {Null}, 
+                            orig: Clients, region: Regions, type: {"Write"}
+                        ]
+                    ]
 Next ==
     \* Client actions
     \/ Workflow
@@ -318,11 +349,21 @@ Next ==
     \/ Cosmos
 
 Spec ==
-    Init /\ [][Next]_vars /\ WF_vars(Next)
+    /\ Init
+    /\ [][Next]_vars
+    /\ WF_vars(Workflow)
+    \* Assert that the variable outbox eventually changes that is a database response
+    \* eventually is send to clients.
+    /\ WF_outbox(CosmosRead /\ \A c \in Clients: outbox'[c] # <<>> => outbox'[c].type # "Error")
+    /\ WF_outbox(CosmosWrite /\ \A c \in Clients: outbox'[c] # <<>> => outbox'[c].type # "Error")
 
 Monotonic ==
     \* The (log of the) database only ever grows.
-    [][Len(database') >= Len(database)]_vars
+    \* [][Len(database') >= Len(database)]_vars
+    \* Log sequence numbers are monotonic.
+    \A i,j \in DOMAIN database:
+        (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
+        => database[i].consistency.lsn <= database[j].consistency.lsn
 
 THEOREM Spec => Monotonic
 

@@ -32,36 +32,43 @@ ASSUME
 --------------------------------------------------------------------------------
 
 \* Linearizability
-ReadStrong(db, operation) ==
+ReadStrong(db, operation, var(_,_)) ==
     LET f == Filter(db, LAMBDA e: e.doc = operation.doc)
-    IN IF f = <<>> THEN {""} ELSE {Last(f).data}
+    IN IF f = <<>> THEN UNCHANGED var(FALSE, 1)
+       ELSE var(TRUE, Last(f).data)
 
 \* consistent-prefix
 \* monotonic reads
 \* monotonic writes
 \* read-your-writes
 \* write-follows-reads guarantees
-ReadSession(db, token, operation) ==
-    LET f == Filter(SubSeq(db, token, Len(db)), LAMBDA e: e.doc = operation.doc)
-    IN IF f = <<>> THEN {""} ELSE {Last(f).data}
+ReadSession(db, token, operation, var(_,_)) ==
+    TRUE
+    \* LET f == Filter(SubSeq(db, token, Len(db)), LAMBDA e: e.doc = operation.doc)
+    \* IN IF f = <<>> THEN UNCHANGED var
+    \*    ELSE \E v \in {f[i].data : i \in 1..Len(f)} : var' = v
 
 \* In eventual consistency, there's no ordering guarantee for reads. 
 \* In the absence of any further writes, the replicas eventually converge.
-ReadEventual(db, operation) ==
+ReadEventual(db, operation, var(_,_)) ==
     LET f == Filter(db, LAMBDA e: e.doc = operation.doc)
-    IN IF f = <<>> THEN {""} ELSE {f[i].data : i \in 1..Len(f)}
+    IN IF f = <<>> THEN UNCHANGED var(FALSE, 1)
+       ELSE \E v \in ({""} \cup {f[i].data : i \in 1..Len(f)}) : var(TRUE, v)
 
-Read(db, operation) ==
-    CASE Consistency = "Strong" -> ReadStrong(db, operation)
+Read(db, operation, var(_,_)) ==
+    /\ CASE Consistency = "Strong" -> ReadStrong(db, operation, var)
         \* [] Consistency = "Bounded_Staleness" -> -K..K
         \* [] Consistency = "Session" -> ReadSession(db, operation)
         \* [] Consistency = "Consistent_Prefix" -> Int
-        [] Consistency = "Eventual" -> ReadEventual(db, operation)
+        [] Consistency = "Eventual" -> ReadEventual(db, operation, var)
+        [] OTHER -> FALSE
+    /\ db \o <<operation>>
 
 Write(db, operation) ==
     db \o <<operation>>
 
-Session(db, operation) ==
-    Len(db) + 1
-
 ================================================================================
+
+
+Do not "return" a set of all possible values that the client has to handle non-deterministically. Instead, handle the non-determinism here.
+Does it suffice to model atomic writes and reads 
