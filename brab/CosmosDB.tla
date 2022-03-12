@@ -101,7 +101,7 @@ ReadStrongResponse(request) ==
             region |-> request.region,
             orig |-> "cosmos"
         ]
-    IN {error} \cup 
+    IN \*{error} \cup 
         IF \E w \in Range(database): w.type = "Write"
         THEN {reply(LastData, LastLSN)}
         ELSE {} \* 404 in Cosmos DB
@@ -123,9 +123,10 @@ ReadSessionResponse(request) ==
             region |-> request.region,
             orig |-> "cosmos"
         ]
-    IN {error} \cup 
+    IN \* {error} \cup 
         \* {} models 404 in Cosmos DB
-        LET WritesInRange == { w \in Range(database) : w.type = "Write" /\ w.consistency.lsn >= request.consistency.lsn }
+        LET InRange == { database[i] : i \in request.consistency.lsn..Len(database) }
+            WritesInRange == { w \in InRange : w.type = "Write" }
         IN { reply(w.data, w.consistency.lsn) : w \in WritesInRange }
 
 ReadEventualResponse(request) ==
@@ -165,7 +166,7 @@ WriteStrongResponse(request) ==
             region |-> request.region,
             orig |-> "cosmos"
         ]
-    IN {error} \cup 
+    IN \* {error} \cup 
         IF request.old = Null \/ request.old = LastData
         THEN {ack}
         ELSE {nack(LastData)}
@@ -219,7 +220,7 @@ CosmosLose ==
         /\ UNCHANGED <<cvars, database, outbox>>
 
 Cosmos ==
-    \/ CosmosLose
+    \* \/ CosmosLose
     \/ CosmosRead
     \/ CosmosWrite
 
@@ -254,8 +255,8 @@ SendWriteRequest ==
             /\ LET req == [
                 doc |-> res.doc,
                 data |-> IF res.data # Null THEN res.data + c ELSE c,
-                \* old |-> Null, \* No if-match for now.
-                old |-> res.data,
+                old |-> Null, \* No if-match for now.
+                \* old |-> res.data,
                 type |-> "Write",
                 consistency |-> res.consistency,
                 region |-> res.region,
@@ -354,17 +355,20 @@ Spec ==
     /\ WF_vars(Workflow)
     \* Assert that the variable outbox eventually changes that is a database response
     \* eventually is send to clients.
-    /\ WF_outbox(CosmosRead /\ \A c \in Clients: outbox'[c] # <<>> => outbox'[c].type # "Error")
-    /\ WF_outbox(CosmosWrite /\ \A c \in Clients: outbox'[c] # <<>> => outbox'[c].type # "Error")
+    /\ WF_outbox(CosmosRead)
+    /\ WF_outbox(CosmosWrite)
 
 Monotonic ==
     \* The (log of the) database only ever grows.
-    \* [][Len(database') >= Len(database)]_vars
-    \* Log sequence numbers are monotonic.
+    [][Len(database') >= Len(database)]_vars
+
+THEOREM Spec => Monotonic
+
+LSNMontonic ==
+    \* The LSN of write operations kept in variable are not monotonic!
     \A i,j \in DOMAIN database:
         (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
         => database[i].consistency.lsn <= database[j].consistency.lsn
 
-THEOREM Spec => Monotonic
 
 ================================================================================
