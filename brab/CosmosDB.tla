@@ -17,8 +17,8 @@ CONSTANT WriteRegions
 
 CONSTANT Clients
  
-VARIABLE client, pc
-cvars == << client, pc >>
+VARIABLE client, pc, session
+cvars == << client, pc, session >>
    
 --------------------------------------------------------------------------------
 
@@ -242,7 +242,7 @@ TypeOK ==
 --------------------------------------------------------------------------------
 
 SendWriteRequest ==
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, session>>
     /\ \E c \in Clients :
         \* send -> receive
         /\ pc[c] = "write"
@@ -266,7 +266,7 @@ SendWriteRequest ==
                   /\ UNCHANGED <<database, outbox>>
 
 SendReadRequest ==
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, session>>
     /\ \E c \in Clients :
         \* send -> receive
         /\ pc[c] = "read"
@@ -276,9 +276,10 @@ SendReadRequest ==
         /\ LET req == [
             doc |-> "doc1",
             type |-> "Read",
-            consistency |-> IF client[c] # Null 
-                            THEN client[c].consistency
-                            ELSE [level |-> "Session", lsn |-> 1],
+            consistency |-> [level |-> "Session", lsn |-> session],
+            \* consistency |-> IF client[c] # Null 
+            \*                 THEN client[c].consistency
+            \*                 ELSE [level |-> "Session", lsn |-> 1],
             region |-> "R",
             orig |-> c
            ]   
@@ -296,13 +297,17 @@ ReceiveResponse ==
                 /\ client' = [ client EXCEPT ![c] = Head(outbox[c]) ]
                 /\ \/ /\ client'[c].type \in {"ACK"}
                       /\ pc' = [ pc EXCEPT ![c] = "read" ]
+                      /\ session' = client'[c].consistency.lsn
                    \/ /\ client'[c].type \in {"NACK"}
                       /\ pc' = [ pc EXCEPT ![c] = "retry" ]
+                      /\ UNCHANGED session
                    \/ /\ client'[c].type \in {"Reply"}
                       /\ pc' = [ pc EXCEPT ![c] = "write" ]
+                      /\ UNCHANGED session
                    \/ /\ client'[c].type \in {"Error"}
                       /\ pc' = [ pc EXCEPT ![c] = "error" ]
-           ELSE UNCHANGED <<outbox, pc, client>>
+                      /\ UNCHANGED session
+           ELSE UNCHANGED <<outbox, pc, client, session>>
     /\ UNCHANGED <<database, inbox>>
 
 HandleNack ==
@@ -310,7 +315,7 @@ HandleNack ==
         /\ pc[c] = "retry"
         \* Just trigger a rewrite because NACK contained the current data.
         /\ pc' = [ pc EXCEPT ![c] = "write" ]
-    /\ UNCHANGED <<client, dvars>>
+    /\ UNCHANGED <<dvars, client, session>>
     
 HandleError ==
     /\ \E c \in Clients :
@@ -320,7 +325,7 @@ HandleError ==
         \* TODO pc[c] = "error" for one or more clients:
         \* TODO   <>[](\A c \in Clients: pc[c] # "error")
         /\ pc' = [ pc EXCEPT ![c] = "done" ]
-    /\ UNCHANGED <<dvars, client>>
+    /\ UNCHANGED <<dvars, client, session>>
 
 Workflow ==
     \/ SendWriteRequest
@@ -332,6 +337,7 @@ Workflow ==
 --------------------------------------------------------------------------------
 
 Init ==
+    /\ session = 1
     /\ pc = [ c \in Clients |-> "read" ]
     /\ client = [ c \in Clients |-> Null ]
     /\ outbox = [ c \in Clients |-> <<>> ]
