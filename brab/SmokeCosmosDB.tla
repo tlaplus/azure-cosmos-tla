@@ -11,6 +11,9 @@ StopAfter ==
     (* Generating 100 traces should provide reasonable coverage. *)
     \/ TLCSet("exit", TLCGet("diameter") > 99)
 
+\* Test:
+\* a) Writes 
+
 TestNext ==
     /\ UNCHANGED <<cvars, dvars>>
     /\ LET request == [

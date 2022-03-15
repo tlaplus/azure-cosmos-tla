@@ -1,18 +1,12 @@
 ----- MODULE CosmosDB ----
 EXTENDS Integers, TLC, Sequences, SequencesExt, Bags, BagsExt, Functions
 
-CONSTANT Data, Null
-
-Levels ==
-    {"Strong", "Bounded_staleness", "Session", "Consistent_prefix", "Eventual"}
-
-Consistency ==
-    [level: Levels, lsn: Int] \* log-sequence-number (lsn)
-
 CONSTANT Regions
 
 CONSTANT WriteRegions
-    
+
+CONSTANT Null, Data
+
 --------------------------------------------------------------------------------
 
 CONSTANT Clients
@@ -22,48 +16,7 @@ cvars == << client, pc, session >>
    
 --------------------------------------------------------------------------------
 
-\* Request: Client -> Cosmos
-Request ==
-    [
-        doc: STRING,     \* The document that was read.
-        \* data: Data,      \* The data that was read.
-        type: {"Read"}, 
-        consistency: Consistency, 
-        region: Regions, \* The region the original read request was sent to.
-        orig: Clients    \* The client that originally sent the read request.
-    ] \cup
-    [
-        doc: STRING,     \* The document that was written.
-        data: Data,      \* The data that was written.
-        old: Data \cup {Null},    \* If not Null, the expected data to be overriden (If-Match).  Note that If-Match & etags are essentially compare-and-swap.
-        type: {"Write"}, 
-        consistency: Consistency, 
-        region: WriteRegions, \* The region the original write request was sent to.
-        orig: Clients
-    ]
-
-\* Response: Cosmos -> Client
-Response ==
-    [
-        doc: STRING,     \* The document that was written.
-        data: Data,    \* "ACK", a session token, or the data that was read.
-        type: {"Reply", "Error"}, 
-        consistency: Consistency, 
-        region: Regions, \* The region the original read request was sent to.
-        orig: {"cosmos"}
-    ] \cup 
-    [
-        doc: STRING,       \* The document that was written.
-        data: Data \cup {Null},      \* Non-null if NACK because of If-Match.
-        \* In case of error, the write might or might not have succeeded. An error
-        \* models the case that the database response to a write request was lost.
-        \* Message duplications is assumed to be prevented by the communicaion
-        \* protocol (e.g. TCP).
-        type: {"ACK", "NACK", "Error"},
-        consistency: Consistency, 
-        region: WriteRegions, \* The region the original read request was sent to.
-        orig: {"cosmos"}
-    ]
+INSTANCE CosmosMessages
 
 VARIABLE
     outbox,
@@ -85,49 +38,17 @@ LastData ==
     ELSE Null
 
 ReadStrongResponse(request) ==
-    LET error == [
-            doc |-> request.doc,
-            data |-> Null,
-            type |-> "Error",
-            consistency |-> [level |-> request.consistency.level, lsn |-> -1],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-        reply(data, lsn) == [
-            doc |-> request.doc,
-            data |-> data,
-            type |-> "Reply",
-            consistency |-> [level |-> request.consistency.level, lsn |-> lsn],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-    IN \*{error} \cup 
+    {CError(request)} \cup 
         IF \E w \in Range(database): w.type = "Write"
-        THEN {reply(LastData, LastLSN)}
+        THEN {CReply(request, LastData, LastLSN)}
         ELSE {} \* 404 in Cosmos DB
 
 ReadSessionResponse(request) ==
-    LET error == [
-            doc |-> request.doc,
-            data |-> Null,
-            type |-> "Error",
-            consistency |-> [level |-> request.consistency.level, lsn |-> -1],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-        reply(data, lsn) == [
-            doc |-> request.doc,
-            data |-> data,
-            type |-> "Reply",
-            consistency |-> [level |-> request.consistency.level, lsn |-> lsn],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-    IN \* {error} \cup 
+    {CError(request)} \cup 
         \* {} models 404 in Cosmos DB
         LET InRange == { database[i] : i \in request.consistency.lsn..Len(database) }
             WritesInRange == { w \in InRange : w.type = "Write" }
-        IN { reply(w.data, w.consistency.lsn) : w \in WritesInRange }
+        IN { CReply(request, w.data, w.consistency.lsn) : w \in WritesInRange }
 
 ReadEventualResponse(request) ==
     FALSE \* TODO
@@ -142,34 +63,12 @@ ReadResponse(request) ==
 WriteStrongResponse(request) ==
     \* With strong consistency, any previous (happen-before) write to any region has
     \* succeeded and is fully replicated.
-    LET error == [
-            doc |-> request.doc,
-            data |-> Null,
-            type |-> "Error",
-            consistency |-> [level |-> request.consistency.level, lsn |-> -1],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-        ack == [
-            doc |-> request.doc,
-            data |-> Null,
-            type |-> "ACK",
-            consistency |-> [level |-> request.consistency.level, lsn |-> Len(database) + 1], \* lsn is length of DB \* Can't do Len(database') here bc database' not yet defined when TLC evaluates this expr.
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-        nack(d) == [
-            doc |-> request.doc,
-            data |-> d,
-            type |-> "NACK",
-            consistency |-> [level |-> request.consistency.level, lsn |-> Len(database)],
-            region |-> request.region,
-            orig |-> "cosmos"
-        ]
-    IN \* {error} \cup 
+    {CError(request)} \cup 
         IF request.old = Null \/ request.old = LastData
-        THEN {ack}
-        ELSE {nack(LastData)}
+        \* lsn is length of DB \* Can't do Len(database') here bc database' not yet
+        \* defined when TLC evaluates this expr.
+        THEN {CAck(request, Len(database) + 1)}
+        ELSE {CNack(request, LastData, Len(database))}
 
  WriteSessionResponse(request) ==
      WriteStrongResponse(request)
@@ -313,7 +212,8 @@ ReceiveResponse ==
 HandleNack ==
     /\ \E c \in Clients :
         /\ pc[c] = "retry"
-        \* Just trigger a rewrite because NACK contained the current data.
+        \* Just trigger a rewrite because NACK response contains the
+        \* data value at the time of the failed write.
         /\ pc' = [ pc EXCEPT ![c] = "write" ]
     /\ UNCHANGED <<dvars, client, session>>
     
