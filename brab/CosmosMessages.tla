@@ -47,7 +47,9 @@ Response ==
     ] \cup 
     [
         doc: STRING,       \* The document that was written.
-        data: Data \cup {Null},      \* Non-null if NACK because of If-Match.
+        \* Cosmos' write response contains the original data: 
+        \* https://docs.microsoft.com/en-us/rest/api/cosmos-db/create-a-document#example
+        data: Data \cup {Null},      \* Null if Error.
         \* In case of error, the write might or might not have succeeded. An error
         \* models the case that the database response to a write request was lost.
         \* Message duplications is assumed to be prevented by the communicaion
@@ -58,9 +60,16 @@ Response ==
         orig: {"cosmos"}
     ]
 
+CRead(doc, consistency, region, orig) ==
+    [
+        doc |-> doc, 
+        type |-> "Read", consistency |-> consistency,
+        region |-> region, orig |-> orig
+    ]
+
 CRequest(doc, data, old, type, consistency, region, orig) ==
     [
-        doc |-> doc, data |-> data, old |-> Null,
+        doc |-> doc, data |-> data, old |-> old,
         type |-> type, consistency |-> consistency,
         region |-> region, orig |-> orig
     ]
@@ -79,9 +88,9 @@ CReply(request, data, lsn) ==
         region |-> request.region, orig |-> "cosmos"
     ]
 
-CAck(request, lsn) ==
+CAck(request, data, lsn) ==
     [
-        doc |-> request.doc, data |-> Null,
+        doc |-> request.doc, data |-> data,
         type |-> "ACK", consistency |-> [level |-> request.consistency.level, lsn |-> lsn],
         region |-> request.region, orig |-> "cosmos"
     ]

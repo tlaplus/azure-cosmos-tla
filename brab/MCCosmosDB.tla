@@ -36,13 +36,12 @@ NoReceiveInPerpetuity ==
     <>[](\A c \in Clients: pc[c] # "receive")
     
 Progress ==
-    <>[](LastData = 10)
+    <>[](LastData("doc1") = 10)
 
 Alias ==
     [
         client |-> client,
         database |-> database,
-        strong |-> LastData,
         inbox |-> inbox,
         outbox |-> outbox,
         pc |-> pc

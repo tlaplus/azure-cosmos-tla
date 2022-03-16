@@ -22,32 +22,49 @@ VARIABLE
     outbox,
     \* A bag (multiset) of requests.
     inbox,
-    \* A sequence of requests.
+    \* A sequence of requests, which is essentially the Write-Ahead log of Cosmos DB.
+    \* Since we don't care about an efficient implementation of Cosmos DB, we never
+    \* checkpoint/apply and discard a prefix of the WAL.  Discarding the WAL, however,
+    \* could be an optimization to speed-up model-checking by applying a prefix of the WAL
+    \* into a "db entry".
     database
 dvars == << outbox, inbox, database >>
 
+CTypeOK ==
+    \* Cosmos
+    /\ outbox \in [ Clients -> Seq(Response) ]
+    /\ DOMAIN inbox \subseteq Request
+    /\ IsABag(inbox)
+    /\ database \in Seq(Request)
+
+\* TODO: The LastLSN doesn *not* take the document name into account!!!
+\* TODO: => Is the LSN per database or per doc (collection)???
+\* TODO:    If LSN not per database, the write response cannot do Len(db)+1 below!!!
+\* TODO: => As per last paragraph of https://stackoverflow.com/a/71400260/6291195,
+\* TODO:    the scope of a session token is a partition key and not a collection or database.
+
 LastLSN ==
     CHOOSE i \in 1..Len(database):
-                    /\ database[i].type = "Write"
-                    /\ \A j \in (i+1)..Len(database): database[j].type # "Write"
+            /\ database[i].type = "Write"
+            /\ \A j \in (i+1)..Len(database): database[j].type # "Write"
 
-LastData ==
+LastData(doc) ==
     \* Null or the data of the last write.
-    IF \E w \in Range(database): w.type = "Write"
+    IF \E w \in Range(database): w.type = "Write" /\ w.doc = doc
     THEN database[LastLSN].data
     ELSE Null
 
 ReadStrongResponse(request) ==
     {CError(request)} \cup 
-        IF \E w \in Range(database): w.type = "Write"
-        THEN {CReply(request, LastData, LastLSN)}
+        IF \E w \in Range(database): w.type = "Write" /\ w.doc = request.doc
+        THEN {CReply(request, LastData(request.doc), LastLSN)}
         ELSE {} \* 404 in Cosmos DB
 
 ReadSessionResponse(request) ==
     {CError(request)} \cup 
         \* {} models 404 in Cosmos DB
         LET InRange == { database[i] : i \in request.consistency.lsn..Len(database) }
-            WritesInRange == { w \in InRange : w.type = "Write" }
+            WritesInRange == { w \in InRange : w.type = "Write" /\ w.doc = request.doc }
         IN { CReply(request, w.data, w.consistency.lsn) : w \in WritesInRange }
 
 ReadEventualResponse(request) ==
@@ -64,11 +81,11 @@ WriteStrongResponse(request) ==
     \* With strong consistency, any previous (happen-before) write to any region has
     \* succeeded and is fully replicated.
     {CError(request)} \cup 
-        IF request.old = Null \/ request.old = LastData
-        \* lsn is length of DB \* Can't do Len(database') here bc database' not yet
-        \* defined when TLC evaluates this expr.
-        THEN {CAck(request, Len(database) + 1)}
-        ELSE {CNack(request, LastData, Len(database))}
+        IF request.old = Null \/ request.old = LastData(request.doc)
+        \* Can't use LastData' and Len(database') here bc database' not yet
+        \* defined when TLC evaluates this expr. :-(
+        THEN {CAck(request, request.data, Len(database) + 1)}
+        ELSE {CNack(request, LastData(request.doc), Len(database))}
 
  WriteSessionResponse(request) ==
      WriteStrongResponse(request)
@@ -91,7 +108,8 @@ CosmosWrite ==
     \E req \in DOMAIN inbox:
           /\ req.type = "Write"
           \* TODO: Should this rather raise an error because it indicates
-          \* TODO: a spec bug?
+          \* TODO: a spec bug?  Perhaps, we can remove the WriteRegions
+          \* TODO: CONSTANT?
           /\ req.region \in WriteRegions
           /\ \E res \in WriteResponse(req):
                     /\ IF res.type = "ACK" 
@@ -119,7 +137,7 @@ CosmosLose ==
         /\ UNCHANGED <<cvars, database, outbox>>
 
 Cosmos ==
-    \* \/ CosmosLose
+    \/ CosmosLose
     \/ CosmosRead
     \/ CosmosWrite
 
@@ -133,12 +151,24 @@ TypeOK ==
     /\ Range(pc) \subseteq {"start", "write", "retry", "read", "receive", "error", "done"}
     /\ client \in [Clients -> (Response \cup {Null})]
     \* Cosmos
-    /\ outbox \in [ Clients -> Seq(Response) ]
-    /\ IsABag(inbox)
-    /\ DOMAIN inbox \subseteq Request
-    /\ database \in Seq(Request)
+    /\ CTypeOK
 
 --------------------------------------------------------------------------------
+
+CInit ==
+    /\ client = [ c \in Clients |-> Null ]
+    /\ outbox = [ c \in Clients |-> <<>> ]
+    /\ inbox = <<>>
+    \* Initially, the database is modeled to be not-empty, but to contain some
+    \* data.
+    /\ database \in [ {1} -> 
+                        [
+                            consistency: {[level |-> "Strong", lsn |-> 1]}, 
+                            data: {1}, doc: {"doc1"}, old: {Null}, 
+                            orig: Clients, region: Regions, type: {"Write"}
+                        ]
+                    ]
+
 
 SendWriteRequest ==
     /\ UNCHANGED <<client, session>>
@@ -237,18 +267,10 @@ Workflow ==
 --------------------------------------------------------------------------------
 
 Init ==
+    /\ CInit
     /\ session = 1
     /\ pc = [ c \in Clients |-> "read" ]
-    /\ client = [ c \in Clients |-> Null ]
-    /\ outbox = [ c \in Clients |-> <<>> ]
-    /\ inbox = <<>>
-    /\ database \in [ {1} -> 
-                        [
-                            consistency: {[level |-> "Strong", lsn |-> 1]}, 
-                            data: {1}, doc: {"doc1"}, old: {Null}, 
-                            orig: Clients, region: Regions, type: {"Write"}
-                        ]
-                    ]
+
 Next ==
     \* Client actions
     \/ Workflow
