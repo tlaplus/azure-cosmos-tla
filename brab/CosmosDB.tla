@@ -1,3 +1,57 @@
+### Limitations Azure Cosmos Emulator:
+
+- The emulator does not offer different Azure Cosmos DB consistency levels like the cloud service does.
+- The emulator does not offer multi-region replication.
+
+https://docs.microsoft.com/en-us/azure/cosmos-db/local-emulator?tabs=ssl-netstd21#differences-between-the-emulator-and-the-cloud-service
+
+Limitations Azure Cosmos Linux Emulator:
+
+- While consistency levels can be adjusted using command-line arguments for testing scenarios only (default setting is Session), a user might not expect the same behavior as in the cloud service. For instance, Strong and Bounded staleness consistency has no effect on the emulator, other than signaling to the Cosmos DB SDK the default consistency of the account.
+- The Linux emulator does not offer multi-region replication.
+
+https://docs.microsoft.com/en-us/azure/cosmos-db/linux-emulator?tabs=ssl-netstd21
+
+### Candidate features to support:
+
+- Optimistic Concurrency Control (OCC)
+- if-match & _etag
+- if-none-match
+
+- Strong consistency
+- Session Consistency
+- Eventual Consistency
+- Bounded Staleness
+- Consistent Prefix
+
+- relaxing consistency levels on a per-request basis
+
+- multi-region writes & conflict feed
+https://docs.microsoft.com/en-us/azure/cosmos-db/sql/database-transactions-optimistic-concurrency
+
+- multiple documents/partition key (logical/physical partitions)
+https://docs.microsoft.com/en-us/azure/cosmos-db/partitioning-overview
+
+- cross-partition queries
+https://docs.microsoft.com/en-us/azure/cosmos-db/sql/how-to-query-container#avoiding-cross-partition-queries
+
+- stored procedures/triggers/UDFs
+https://docs.microsoft.com/en-us/azure/cosmos-db/sql/stored-procedures-triggers-udfs
+
+### Supported features:
+
+- multiple regions (but only one write region)
+- partition replica set (each region has a replica set)
+
+- if-match & _etag
+
+- Strong consistency
+- Session Consistency (point reads within a partition)
+- Eventual Consistency
+
+- Partition keys & multiple LSNs?
+
+
 ----- MODULE CosmosDB ----
 EXTENDS Integers, TLC, Sequences, SequencesExt, Bags, BagsExt, Functions
 
@@ -300,3 +354,8 @@ LSNMontonic ==
 
 
 ================================================================================
+
+
+Random material:
+
+- https://www.youtube.com/watch?v=-4FsGysVD14
