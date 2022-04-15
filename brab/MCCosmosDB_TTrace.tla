@@ -7,46 +7,46 @@ _expression ==
 ----
 
 _trace ==
-    LET MCCosmosDB_TETrace == INSTANCE MCCosmosDB_TETrace
-    IN MCCosmosDB_TETrace!trace
+    LET MCCosmosDB_trace == INSTANCE MCCosmosDB_trace
+    IN MCCosmosDB_trace!trace
 ----
 
 _prop ==
     ~<>[](
-        /\ database = (_TETrace[Len(_TETrace)].database)
-        /\ pc = (_TETrace[Len(_TETrace)].pc)
-        /\ session = (_TETrace[Len(_TETrace)].session)
-        /\ client = (_TETrace[Len(_TETrace)].client)
-        /\ outbox = (_TETrace[Len(_TETrace)].outbox)
-        /\ inbox = (_TETrace[Len(_TETrace)].inbox)
+        /\ database = (_trace[Len(_trace)].database)
+        /\ pc = (_trace[Len(_trace)].pc)
+        /\ session = (_trace[Len(_trace)].session)
+        /\ client = (_trace[Len(_trace)].client)
+        /\ outbox = (_trace[Len(_trace)].outbox)
+        /\ inbox = (_trace[Len(_trace)].inbox)
     )
 ----
 
 _init ==
-    /\ database = _TETrace[1].database
-    /\ pc = _TETrace[1].pc
-    /\ outbox = _TETrace[1].outbox
-    /\ session = _TETrace[1].session
-    /\ client = _TETrace[1].client
-    /\ inbox = _TETrace[1].inbox
+    /\ database = _trace[1].database
+    /\ pc = _trace[1].pc
+    /\ outbox = _trace[1].outbox
+    /\ session = _trace[1].session
+    /\ client = _trace[1].client
+    /\ inbox = _trace[1].inbox
 ----
 
 _next ==
-    /\ \E i,j \in DOMAIN _TETrace:
+    /\ \E i,j \in DOMAIN _trace:
         /\ \/ /\ j = i + 1
               /\ i = TLCGet("level")
-        /\ database  = _TETrace[i].database
-        /\ database' = _TETrace[j].database
-        /\ pc  = _TETrace[i].pc
-        /\ pc' = _TETrace[j].pc
-        /\ outbox  = _TETrace[i].outbox
-        /\ outbox' = _TETrace[j].outbox
-        /\ session  = _TETrace[i].session
-        /\ session' = _TETrace[j].session
-        /\ client  = _TETrace[i].client
-        /\ client' = _TETrace[j].client
-        /\ inbox  = _TETrace[i].inbox
-        /\ inbox' = _TETrace[j].inbox
+        /\ database  = _trace[i].database
+        /\ database' = _trace[j].database
+        /\ pc  = _trace[i].pc
+        /\ pc' = _trace[j].pc
+        /\ outbox  = _trace[i].outbox
+        /\ outbox' = _trace[j].outbox
+        /\ session  = _trace[i].session
+        /\ session' = _trace[j].session
+        /\ client  = _trace[i].client
+        /\ client' = _trace[j].client
+        /\ inbox  = _trace[i].inbox
+        /\ inbox' = _trace[j].inbox
 
 HL == INSTANCE MCCosmosDB
 _implements == 
@@ -69,7 +69,7 @@ expression ==
 
 =============================================================================
 
----- MODULE MCCosmosDB_TETrace ----
+---- MODULE MCCosmosDB_trace ----
 EXTENDS TLC, MCCosmosDB
 
 trace == 
@@ -107,9 +107,6 @@ INIT
 
 NEXT
     _next
-
-CONSTANT
-    _TETrace <- _trace
 
 ALIAS
     _expression
