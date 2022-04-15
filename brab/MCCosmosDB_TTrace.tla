@@ -52,6 +52,9 @@ _next ==
         /\ inbox  = _trace[_index][i].inbox
         /\ inbox' = _trace[_index][j].inbox
 
+_view ==
+    <<vars, _index, TLCGet("level")>>
+
 HL == INSTANCE MCCosmosDB
 _implements == 
     HL!Init /\ [][HL!Next]_HL!vars
@@ -79,6 +82,7 @@ EXTENDS TLC, MCCosmosDB
 trace == 
     <<
         <<
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
         ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
         ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
         ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
@@ -109,7 +113,7 @@ CONSTANTS
     Null = Null
 
 PROPERTY
-    \* _prop
+    _prop
     _implements
 
 CHECK_DEADLOCK
@@ -121,6 +125,9 @@ INIT
 
 NEXT
     _next
+
+VIEW
+    _view
 
 ALIAS
     _expression
