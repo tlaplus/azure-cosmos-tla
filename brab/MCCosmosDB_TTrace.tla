@@ -11,42 +11,46 @@ _trace ==
     IN MCCosmosDB_trace!trace
 ----
 
+VARIABLE _index
+
 _prop ==
     ~<>[](
-        /\ database = (_trace[Len(_trace)].database)
-        /\ pc = (_trace[Len(_trace)].pc)
-        /\ session = (_trace[Len(_trace)].session)
-        /\ client = (_trace[Len(_trace)].client)
-        /\ outbox = (_trace[Len(_trace)].outbox)
-        /\ inbox = (_trace[Len(_trace)].inbox)
+        /\ database = (_trace[_index][Len(_trace[_index])].database)
+        /\ pc = (_trace[_index][Len(_trace[_index])].pc)
+        /\ session = (_trace[_index][Len(_trace[_index])].session)
+        /\ client = (_trace[_index][Len(_trace[_index])].client)
+        /\ outbox = (_trace[_index][Len(_trace[_index])].outbox)
+        /\ inbox = (_trace[_index][Len(_trace[_index])].inbox)
     )
 ----
 
 _init ==
-    /\ database = _trace[1].database
-    /\ pc = _trace[1].pc
-    /\ outbox = _trace[1].outbox
-    /\ session = _trace[1].session
-    /\ client = _trace[1].client
-    /\ inbox = _trace[1].inbox
+    /\ _index \in 1..Len(_trace)
+    /\ database = _trace[_index][1].database
+    /\ pc = _trace[_index][1].pc
+    /\ outbox = _trace[_index][1].outbox
+    /\ session = _trace[_index][1].session
+    /\ client = _trace[_index][1].client
+    /\ inbox = _trace[_index][1].inbox
 ----
 
 _next ==
-    /\ \E i,j \in DOMAIN _trace:
+    /\ UNCHANGED _index
+    /\ \E i,j \in DOMAIN _trace[_index]:
         /\ \/ /\ j = i + 1
               /\ i = TLCGet("level")
-        /\ database  = _trace[i].database
-        /\ database' = _trace[j].database
-        /\ pc  = _trace[i].pc
-        /\ pc' = _trace[j].pc
-        /\ outbox  = _trace[i].outbox
-        /\ outbox' = _trace[j].outbox
-        /\ session  = _trace[i].session
-        /\ session' = _trace[j].session
-        /\ client  = _trace[i].client
-        /\ client' = _trace[j].client
-        /\ inbox  = _trace[i].inbox
-        /\ inbox' = _trace[j].inbox
+        /\ database  = _trace[_index][i].database
+        /\ database' = _trace[_index][j].database
+        /\ pc  = _trace[_index][i].pc
+        /\ pc' = _trace[_index][j].pc
+        /\ outbox  = _trace[_index][i].outbox
+        /\ outbox' = _trace[_index][j].outbox
+        /\ session  = _trace[_index][i].session
+        /\ session' = _trace[_index][j].session
+        /\ client  = _trace[_index][i].client
+        /\ client' = _trace[_index][j].client
+        /\ inbox  = _trace[_index][i].inbox
+        /\ inbox' = _trace[_index][j].inbox
 
 HL == INSTANCE MCCosmosDB
 _implements == 
@@ -74,12 +78,22 @@ EXTENDS TLC, MCCosmosDB
 
 trace == 
     <<
-    ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
-    ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
-    ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
-    ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
-    ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
+        <<
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
+        >>,
+        <<
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
+        >>
     >>
+
 ----
 
 
