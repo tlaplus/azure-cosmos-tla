@@ -1,17 +1,33 @@
 ---- MODULE MCCosmosDB_TTrace ----
-EXTENDS Sequences, TLCExt, Toolbox, Naturals, TLC, MCCosmosDB
+EXTENDS Sequences, TLCExt, Toolbox, Naturals, TLC, MCCosmosDB, SequencesExt
 
-_expression ==
-    LET MCCosmosDB_TEExpression == INSTANCE MCCosmosDB_TEExpression
-    IN MCCosmosDB_TEExpression!expression
-----
+VARIABLE _index
 
 _trace ==
     LET MCCosmosDB_trace == INSTANCE MCCosmosDB_trace
     IN MCCosmosDB_trace!trace
 ----
 
-VARIABLE _index
+RECURSIVE LatestRead(_,_,_)
+LatestRead(t, j, c) ==
+    IF j = 0
+    THEN ""
+    ELSE IF \E m \in Range(t[j].outbox[c]): m.type = "Reply"
+         THEN (CHOOSE m \in Range(t[j].outbox[c]): m.type = "Reply").data
+         ELSE LatestRead(t, j - 1, c)
+
+_expression ==
+    [
+        \* database |-> database
+        \* ,pc |-> pc
+        \* ,outbox |-> outbox
+        \* ,session |-> session
+        \* ,
+        client |-> client
+        \* ,inbox |-> inbox
+        ,_read |-> [ c \in Clients |-> 
+            LatestRead(_trace[_index], TLCGet("level"), c) ]
+    ]
 
 _prop ==
     ~<>[](
@@ -64,16 +80,6 @@ _implements ==
 ---- MODULE MCCosmosDB_TEExpression ----
 EXTENDS Sequences, TLCExt, Toolbox, Naturals, TLC, MCCosmosDB
 
-expression == 
-    [
-        database |-> database
-        ,pc |-> pc
-        ,outbox |-> outbox
-        ,session |-> session
-        ,client |-> client
-        ,inbox |-> inbox
-    ]
-
 =============================================================================
 
 ---- MODULE MCCosmosDB_trace ----
@@ -83,53 +89,25 @@ trace ==
     <<
         <<
         ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
-        >>,
-        <<
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
-        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1]>>,pc |-> <<"receive", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>, <<>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1]>>,pc |-> <<"write", "receive">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1]>>,pc |-> <<"write", "receive">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1 @@ [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1], [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], Null>>,outbox |-> <<<<[data |-> 2, type |-> "ACK", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1], [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], Null>>,outbox |-> <<<<[data |-> 2, type |-> "ACK", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>, <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1], [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "write">>,session |-> 1,client |-> <<[data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"], [data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>,outbox |-> <<<<[data |-> 2, type |-> "ACK", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>, <<>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1], [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2]>>,pc |-> <<"read", "write">>,session |-> 3,client |-> <<[data |-> 2, type |-> "ACK", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> "cosmos"], [data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
+        ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1], [data |-> 2, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], old |-> Null, region |-> "R", orig |-> 1], [type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "write">>,session |-> 3,client |-> <<[data |-> 2, type |-> "ACK", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> "cosmos"], [data |-> 1, type |-> "Reply", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> "cosmos"]>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 3, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)])
+        \* >>,
+        \* <<
+        \* ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "read">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> <<>>]),
+        \* ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 2] :> 1)]),
+        \* ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"read", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>]),
+        \* ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> ([type |-> "Read", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Session"], region |-> "R", orig |-> 1] :> 1)]),
+        \* ([database |-> <<[data |-> 1, type |-> "Write", doc |-> "doc1", consistency |-> [lsn |-> 1, level |-> "Strong"], old |-> Null, region |-> "R", orig |-> 2]>>,pc |-> <<"receive", "receive">>,session |-> 1,client |-> <<Null, Null>>,outbox |-> <<<<>>, <<>>>>,inbox |-> << >>])
         >>
     >>
 
-----
-
-
 =============================================================================
-
----- CONFIG MCCosmosDB_TTrace ----
-CONSTANTS
-    Clients <- clients
-    Regions <- regions
-    WriteRegions <- regions
-    Null = Null
-    Data <- data
-    Null = Null
-
-PROPERTY
-    _prop
-    _implements
-
-CHECK_DEADLOCK
-    \* CHECK_DEADLOCK off because of PROPERTY or INVARIANT above.
-    FALSE
-
-INIT
-    _init
-
-NEXT
-    _next
-
-VIEW
-    _view
-
-ALIAS
-    _expression
-=============================================================================
-\* Generated on Wed Apr 13 14:59:26 PDT 2022
