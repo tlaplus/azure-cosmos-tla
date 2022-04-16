@@ -170,6 +170,11 @@ CosmosWrite ==
                        THEN database' = Append(database, req)
                        ELSE UNCHANGED database
                     /\ \/ outbox' = [outbox EXCEPT ![req.orig] = Append(@, res)]
+                        \* TODO: When modeling request timeouts by having cosmos
+                        \* TODO: add an error response into the client's inbox,
+                        \* TODO: we cannot leave the client client's inbox (cosmos'
+                        \* TODO: outbox) unchanged.  Instead, we have to non-det
+                        \* TODO: Add error reponses here (see comment 9bywrkb6).
                     \*    \/ UNCHANGED <<outbox>> \* Response is lost.
           /\ inbox' = BagRemove(inbox, req)
           /\ UNCHANGED cvars
@@ -191,7 +196,15 @@ CosmosLose ==
         /\ UNCHANGED <<cvars, database, outbox>>
 
 Cosmos ==
-    \/ CosmosLose
+    \* TODO: 9bywrkb6
+    \* TODO: After what time does a lost request time out at the client 
+    \* TODO: (no, we don't want to model time explicitly)?
+    \* TODO: For now, we subsume timeouts under the Error reponse, that
+    \* TODO: leaves cosmos' state (dvars) unchanged.  The more interesting
+    \* TODO: failure is a lost response (because cosmos' state changes).
+    \* TODO: Lost responses are modeled in the CosmosRead and CosmosWrite
+    \* TODO: actions.
+    \* \/ CosmosLose
     \/ CosmosRead
     \/ CosmosWrite
 
@@ -335,8 +348,8 @@ Spec ==
     /\ Init
     /\ [][Next]_vars
     /\ WF_vars(Workflow)
-    \* Assert that the variable outbox eventually changes that is a database response
-    \* eventually is send to clients.
+    \* Assert that the variable outbox eventually changes, i.e., a database response
+    \* is eventually send to clients.
     /\ WF_outbox(CosmosRead)
     /\ WF_outbox(CosmosWrite)
 
