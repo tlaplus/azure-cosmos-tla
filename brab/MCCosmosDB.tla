@@ -41,6 +41,10 @@ NoReceiveInPerpetuity ==
 Progress ==
     <>[](LastData("doc1") = 10)
 
+Docs ==
+    LET Writes == { w \in Range(database): w.type = "Write" }
+    IN { w.doc : w \in Writes}
+
 Alias ==
     [
         client |-> client,
@@ -48,6 +52,7 @@ Alias ==
         inbox |-> inbox,
         outbox |-> outbox,
         pc |-> pc,
-        session |-> session
+        session |-> session,
+        kv |-> [ d \in Docs |-> LastData(d) ]
     ]
 ======
