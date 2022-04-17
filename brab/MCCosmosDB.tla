@@ -44,6 +44,7 @@ Alias ==
         database |-> database,
         inbox |-> inbox,
         outbox |-> outbox,
-        pc |-> pc
+        pc |-> pc,
+        session |-> session
     ]
 ======
