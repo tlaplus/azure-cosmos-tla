@@ -24,6 +24,9 @@ Level ==
     \* /\ ~IsEven(LastData)
 
 Consistent ==
+    \* This is not a theorem, because clients write non-monotonic data (values)
+    \* into Cosmos.
+    \* TODO: State this in terms of each doc's (partition) LSN.
     \A i,j \in 1..Len(database):
         (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
         => (database[i].data) <= (database[j].data)

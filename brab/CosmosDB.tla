@@ -366,7 +366,8 @@ Monotonic ==
 THEOREM Spec => Monotonic
 
 LSNMontonic ==
-    \* The LSN of write operations kept in variable are not monotonic!
+    \* Not a theorem, because the LSN of write operations kept in the
+    \* database variable are not monotonic (IIRC duet to LSN per doc)!
     \A i,j \in DOMAIN database:
         (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
         => database[i].consistency.lsn <= database[j].consistency.lsn
