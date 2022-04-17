@@ -65,7 +65,13 @@ CONSTANT Null, Data
 
 CONSTANT Clients
  
-VARIABLE client, pc, session
+VARIABLE
+    \* Null or the last response received by each client.
+    client, 
+    \* Program counter of the clients.
+    pc,
+    \* A session token that is shared (synced) between all clients.
+    session
 cvars == << client, pc, session >>
    
 --------------------------------------------------------------------------------
@@ -365,6 +371,11 @@ LSNMontonic ==
         (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
         => database[i].consistency.lsn <= database[j].consistency.lsn
 
+SessionMonotonic ==
+    \* In this spec, the session token is shared between all clients. The spec
+    \* doesn't model how the session token is kept in sync. At any rate, it 
+    \* is monotonic.
+    [][session' > session]_session
 
 ================================================================================
 
