@@ -55,6 +55,10 @@ https://docs.microsoft.com/en-us/azure/cosmos-db/sql/stored-procedures-triggers-
 ----- MODULE CosmosDB ----
 EXTENDS Integers, TLC, Sequences, SequencesExt, Bags, BagsExt, Functions
 
+E ==
+    \* If true, reads and writes exhibit errors.
+    TRUE
+
 CONSTANT Regions
 
 CONSTANT WriteRegions
@@ -115,13 +119,13 @@ LastData(doc) ==
     ELSE Null
 
 ReadStrongResponse(request) ==
-    {CError(request)} \cup 
+    (IF E THEN {CError(request)} ELSE {}) \cup
         IF \E w \in Range(database): w.type = "Write" /\ w.doc = request.doc
         THEN {CReply(request, LastData(request.doc), LastLSN)}
         ELSE {} \* 404 in Cosmos DB
 
 ReadSessionResponse(request) ==
-    {CError(request)} \cup 
+    (IF E THEN {CError(request)} ELSE {}) \cup
         \* {} models 404 in Cosmos DB
         LET InRange == { database[i] : i \in request.consistency.lsn..Len(database) }
             WritesInRange == { w \in InRange : w.type = "Write" /\ w.doc = request.doc }
@@ -140,7 +144,7 @@ ReadResponse(request) ==
 WriteStrongResponse(request) ==
     \* With strong consistency, any previous (happen-before) write to any region has
     \* succeeded and is fully replicated.
-    {CError(request)} \cup 
+    (IF E THEN {CError(request)} ELSE {}) \cup
         IF request.old = Null \/ request.old = LastData(request.doc)
         \* Can't use LastData' and Len(database') here bc database' not yet
         \* defined when TLC evaluates this expr. :-(
@@ -232,7 +236,7 @@ CInit ==
     /\ client = [ c \in Clients |-> Null ]
     /\ outbox = [ c \in Clients |-> <<>> ]
     /\ inbox = <<>>
-    \* Initially, the database is modeled to be not-empty, but to contain some
+    \* Initially, the database is modeled to be non-empty; it contains some
     \* data.
     /\ database \in [ {1} -> 
                         [
