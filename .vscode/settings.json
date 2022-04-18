@@ -1,5 +1,5 @@
 {
-    "tlaplus.tlc.modelChecker.options": "-gzip -metadir /tmp -cleanup -noTE -workers 1 -deadlock",
+    "tlaplus.tlc.modelChecker.options": "-gzip -metadir /tmp -cleanup -workers 1",
     "tlaplus.tlc.statisticsSharing": "share",
     "tlaplus.java.options": "-XX:+UseParallelGC -cp /Users/markus/src/TLA/tla/tlatools/org.lamport.tlatools/dist/tla2tools.jar:/Users/markus/src/TLA/_specs/CommunityModules/dist/CommunityModules-deps.jar",
     "[tlaplus]": {"editor.codeActionsOnSave": {"source": true} },
