@@ -282,10 +282,11 @@ SendReadRequest ==
         /\ LET req == [
             doc |-> "doc1",
             type |-> "Read",
-            consistency |-> [level |-> "Session", lsn |-> session],
-            \* consistency |-> IF client[c] # Null 
-            \*                 THEN client[c].consistency
-            \*                 ELSE [level |-> "Session", lsn |-> 1],
+            \* Swap the definition of consistency between "session" and "strong" here.
+            \* consistency |-> [level |-> "Session", lsn |-> session],
+            consistency |-> IF client[c] # Null 
+                            THEN client[c].consistency
+                            ELSE [level |-> "Session", lsn |-> 1],
             region |-> "R",
             orig |-> c
            ]   
@@ -369,12 +370,15 @@ Monotonic ==
 
 THEOREM Spec => Monotonic
 
-LSNMontonic ==
-    \* Not a theorem, because the LSN of write operations kept in the
-    \* database variable are not monotonic (IIRC duet to LSN per doc)!
+LSNMonotonic ==
     \A i,j \in DOMAIN database:
-        (i < j /\ database[i].type = "Write" /\ database[j].type = "Write" )
+        (/\ i < j
+         /\ database[i].doc = database[j].doc
+         /\ database[i].type = "Write"
+         /\ database[j].type = "Write")
         => database[i].consistency.lsn <= database[j].consistency.lsn
+
+THEOREM Spec => []LSNMonotonic
 
 SessionMonotonic ==
     \* In this spec, the session token is shared between all clients. The spec
@@ -388,3 +392,4 @@ SessionMonotonic ==
 Random material:
 
 - https://www.youtube.com/watch?v=-4FsGysVD14
+- https://medium.com/swlh/replication-and-linearizability-in-distributed-systems-cd9036ea7b40
