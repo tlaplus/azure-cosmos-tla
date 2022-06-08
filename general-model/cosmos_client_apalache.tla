@@ -7,7 +7,7 @@
 (* guarantees Cosmos DB provides to the clients, without the details of    *)
 (* the protocol implementation.                                            *)
 (***************************************************************************)
-EXTENDS Integers, Sequences, FiniteSets, TLC, Apalache
+EXTENDS Integers, Sequences, FiniteSets, TLC, SequencesExt \* Apalache
 
 
 \* @type: (Seq(Int), (a => Bool)) => Seq(Int);
@@ -28,8 +28,8 @@ SortedSeq(sorted, e) ==
 Merge(s1, s2) ==
     FoldSeq(SortedSeq, <<>>, s1 \o s2)
 
-Last(s) ==
-    s[Len(s)]
+\* Last(s) ==
+\*     s[Len(s)]
 
 \* @type: Set(Int) => Int;
 SetMax(S) ==
