@@ -7,14 +7,14 @@
 (* guarantees Cosmos DB provides to the clients, without the details of    *)
 (* the protocol implementation.                                            *)
 (***************************************************************************)
-EXTENDS Integers, Sequences, FiniteSets, TLC, SequencesExt \* Apalache
+EXTENDS Integers, Sequences, FiniteSets, TLC, Apalache
 
 
 \* @type: (Seq(Int), (a => Bool)) => Seq(Int);
 FilterSeq(seq, cmp(_)) ==
     LET \* @type: (Seq(Int), Int) => Seq(Int);
         Frob(acc, e) == IF cmp(e) THEN acc \o <<e>> ELSE acc
-    IN FoldSeq(Frob, <<>>, seq)
+    IN ApaFoldSeqLeft(Frob, <<>>, seq)
 
 \* @type: (Seq(Int), Int) => Seq(Int);
 SortedSeq(sorted, e) == 
@@ -26,10 +26,10 @@ SortedSeq(sorted, e) ==
 
 \* @type: (Seq(Int), Seq(Int)) => Seq(Int);
 Merge(s1, s2) ==
-    FoldSeq(SortedSeq, <<>>, s1 \o s2)
+    ApaFoldSeqLeft(SortedSeq, <<>>, s1 \o s2)
 
-\* Last(s) ==
-\*     s[Len(s)]
+Last(s) ==
+    s[Len(s)]
 
 \* @type: Set(Int) => Int;
 SetMax(S) ==
