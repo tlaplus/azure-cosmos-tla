@@ -79,7 +79,7 @@ SessionTokens == [
 
 \* The "not a session token" session token. It precedes all session tokens,
 \* and should be used when no session token is known / available.
-\* It is not a valid session token itself, but is usually compatible with them.
+\* It is not a valid session token itself, but is compatible with them.
 \*
 \* It is not a member of SessionTokens because it has an epoch of 0,
 \* which is special-cased such that it is valid at all epochs.
@@ -199,7 +199,8 @@ TypesOK ==
 
 \* Assuming session-consistent reads and writes,
 \* this operator describes the set of all session tokens that could be
-\* acquired during the current action.
+\* acquired during the current state, independent of session-consistent
+\* reads and writes.
 \*
 \* Note that the range of possible checkpoints is very broad: if the newest
 \* write to a key is very old, the current spec will consider the returned
